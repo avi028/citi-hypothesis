@@ -1,0 +1,35 @@
+# QCS-H14 — Malicious/Test File Hash Detection
+#
+# HYPOTHESIS IS NOT SUPPORTED: no hash-based matching exists anywhere in
+# the runtime sensor. Verified by inspection: RuntimePolicy v2 filters are
+# matchFilePaths/matchBinaries/matchArguments (paths/binary names/args —
+# never hashes); raw Cilium TracingPolicy arg operators are string
+# compares only. process_exec events carry no file-hash fields either.
+#
+# This policy is what IS possible: detect the file by PATH and record its
+# opens/creates. Hash search ("find this hash in images/containers") is a
+# Qualys image-scanning platform feature, not a runtime event.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h14-marker-file
+spec:
+  rules:
+  - name: marker-open
+    type: file
+    id: marker-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h14-marker.txt
+  - name: marker-create
+    type: file
+    id: marker-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h14-marker.txt

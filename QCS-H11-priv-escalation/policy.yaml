@@ -1,0 +1,26 @@
+# QCS-H11 — Privilege Escalation Configuration Detection
+#
+# v2 has no capability/privilege rule type, so the detection rides on the
+# exec sensor: with --enable-process-cred the process_exec event carries
+# binary_properties (setuid/setgid/caps). That flags elevated EXECUTION,
+# not the pod spec itself. The pod spec admission verdict is an
+# OpenShift/Qualys-configuration concern, not a runtime event.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h11-priv-escalation
+spec:
+  rules:
+  # Flags execs of the probe binary; the elevated context is read from the
+  # event's process.cap / binary_properties fields (setuid bit, permitted
+  # caps), which are only populated when the agent runs with
+  # --enable-process-cred.
+  - name: elevated-exec
+    type: process
+    id: elevated-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /usr/bin/id
+      - /usr/bin/env

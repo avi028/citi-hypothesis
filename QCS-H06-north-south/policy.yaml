@@ -1,0 +1,20 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h06-north-south
+spec:
+  rules:
+  # Records outbound TCP connections to the approved web/test ports.
+  # Connections to ports NOT listed produce no policy event — visibility
+  # is scoped to what the policy watches.
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "80"
+      - "443"
+      - "8080"

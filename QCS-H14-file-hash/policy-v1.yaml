@@ -1,0 +1,9 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h14-marker-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h14-marker.txt

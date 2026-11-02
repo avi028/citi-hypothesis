@@ -1,0 +1,11 @@
+# RuntimePolicy v1 — closest form for a health probe: file-open on a
+# binary each time it executes (the sensor's file hook).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h19-health-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /usr/bin/true

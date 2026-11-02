@@ -1,0 +1,89 @@
+# QCS-H05 — Cross-Namespace East-West Communication Visibility
+# CRS version support: 1.45+ — v1 net-tcp-open covers it
+#
+# Two namespaces: a client/toolbox pod in citi-h05-client, and an HTTP
+# service in citi-h05-target. The client generates requests via both the
+# service FQDN and the ClusterIP. The NetworkPolicy allows only this path.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h05-client
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h05-target
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h05-httpd
+  namespace: citi-h05-target
+  labels:
+    app: citi-h05-httpd
+spec:
+  containers:
+  - name: httpd
+    # OpenShift-native httpd listens on 8080.
+    image: registry.access.redhat.com/ubi9/httpd-24:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: citi-h05-svc
+  namespace: citi-h05-target
+spec:
+  selector:
+    app: citi-h05-httpd
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-citi-h05-client
+  namespace: citi-h05-target
+spec:
+  podSelector:
+    matchLabels:
+      app: citi-h05-httpd
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: citi-h05-client
+    ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h05-toolbox
+  namespace: citi-h05-client
+  labels:
+    app: citi-h05-toolbox
+spec:
+  containers:
+  - name: client
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command:
+    - sh
+    - -c
+    - |
+      SVC=citi-h05-svc.citi-h05-target.svc.cluster.local
+      # baseline via service FQDN
+      curl -s -o /dev/null "http://$SVC:8080" || true
+      # repeated requests via resolved ClusterIP
+      IP=$(getent hosts "$SVC" | awk '{print $1}')
+      for i in 1 2 3; do curl -s -o /dev/null "http://$IP:8080" || true; sleep 1; done
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

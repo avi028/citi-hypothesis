@@ -1,0 +1,24 @@
+# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# per-rule Cilium TracingPolicies named <policy>-v2-<rule-id>.
+#
+# Supported today (release/v1.6-1-q5):
+#   type: file     fileOperation: read|write|write-diff|create|delete|
+#                  rename|open|metadata|links
+#   type: process  matchBinaries on the exec'd binary
+#   type: network  direction: egress|ingress|both, action: audit|block
+#   action: audit (Post event) | block/kill (Sigkill)
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-hXX-TODO
+spec:
+  rules:
+  - name: TODO-rule-name
+    type: file
+    id: TODO-rule-id
+    fileOperation: read
+    action: audit
+    matchFilePaths:
+    - operator: Prefix        # Prefix|Postfix|In(Equal)|NotIn|NotPrefix|NotPostfix
+      values:
+      - /tmp/TODO/

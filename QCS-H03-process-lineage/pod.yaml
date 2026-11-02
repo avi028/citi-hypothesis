@@ -1,0 +1,54 @@
+# QCS-H03 — Suspicious Process and Parent-Child Process Detection
+# CRS version support: 1.46+ — v2 process rule for the exec flag; v1 file-open is only an approximation
+#
+# Applying this manifest creates a pod that runs a controlled process chain:
+# shell -> script -> short-lived child (find) + long-running child (sleep)
+# -> explicit kill. A unique marker is embedded in the script for event
+# correlation. No special SCC needed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h03
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h03-sa
+  namespace: citi-h03
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h03-chain
+  namespace: citi-h03
+  labels:
+    app: citi-h03-chain
+spec:
+  serviceAccountName: citi-h03-sa
+  restartPolicy: Never
+  containers:
+  - name: chain
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      MARKER="CITI-H03-$(date +%s)"
+      cat > /tmp/citi-h03-chain.sh <<EOF
+      #!/bin/sh
+      echo "chain-marker $MARKER"
+      sleep 300 &
+      find /etc -name "*.conf" | head -3
+      sleep 2
+      kill %1
+      EOF
+      chmod +x /tmp/citi-h03-chain.sh
+      /tmp/citi-h03-chain.sh
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

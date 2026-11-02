@@ -1,0 +1,23 @@
+# OPTIONAL — raw Cilium TracingPolicy fallback.
+#
+# Use this ONLY when RuntimePolicy v2 cannot express the hook a hypothesis
+# needs (e.g. a syscall/LSM hook outside the fileOperation table, uprobes,
+# tracepoints, custom args). `tetra tracingpolicy add` applies this
+# verbatim — there is no translation.
+#
+# When you use this file, add a "Future implementation" section to
+# RESULT.md noting which v2 rule field would be needed.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: citi-hXX-TODO-raw
+spec:
+  kprobes:
+  - call: "sys_ptrace"          # TODO: the kernel function to hook
+    syscall: true
+    args:
+    - index: 0
+      type: "int"               # TODO: arg types/indices for the hook
+    selectors:
+    - matchActions:
+      - action: Post            # Post = audit, Sigkill = block

@@ -1,0 +1,110 @@
+# QCS-H09 — Service Account Token Access and Kubernetes API Activity
+# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover it
+#
+# Creates: a dedicated namespace, a read-only service account with token
+# automount explicitly enabled, a second namespace the SA cannot see, and a
+# pod that (1) reads the mounted token/namespace files then (2) queries the
+# API for an approved resource in its own namespace and (3) attempts the
+# same query in the other namespace (expected: 403 Forbidden).
+#
+# OpenShift: no special SCC needed — the pod is fully restricted.
+# Corroborate with API audit logs (the 403 only exists there, not in any
+# Qualys event — TLS hides the request itself).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h09
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h09-other
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h09-sa
+  namespace: citi-h09
+automountServiceAccountToken: true
+---
+# Minimal read-only RBAC: get/list/watch ConfigMaps in citi-h09 ONLY.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: citi-h09-read-cm
+  namespace: citi-h09
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: citi-h09-read-cm
+  namespace: citi-h09
+subjects:
+- kind: ServiceAccount
+  name: citi-h09-sa
+  namespace: citi-h09
+roleRef:
+  kind: Role
+  name: citi-h09-read-cm
+  apiGroup: rbac.authorization.k8s.io
+---
+# Approved, non-sensitive resource the SA is allowed to read.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: citi-h09-approved
+  namespace: citi-h09
+data:
+  note: "harmless approved resource for QCS-H09"
+---
+# Non-sensitive resource in a namespace the SA has NO rights to.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: citi-h09-off-limits
+  namespace: citi-h09-other
+data:
+  note: "harmless but unauthorized for citi-h09-sa (expect 403)"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h09-workload
+  namespace: citi-h09
+spec:
+  serviceAccountName: citi-h09-sa
+  automountServiceAccountToken: true
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: curlimages/curl:latest
+    command:
+    - sh
+    - -c
+    - |
+      SADIR=/var/run/secrets/kubernetes.io/serviceaccount
+      API=https://kubernetes.default.svc:443
+      echo "== 1. read mounted SA token material =="
+      ls -l "$SADIR"
+      cat "$SADIR/namespace"
+      wc -c < "$SADIR/token"
+      echo "== 2. authorized query (own namespace) =="
+      curl -sS --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $(cat $SADIR/token)" \
+        "$API/api/v1/namespaces/citi-h09/configmaps" | head -20
+      echo "== 3. unauthorized query (other namespace) =="
+      curl -sS --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $(cat $SADIR/token)" \
+        "$API/api/v1/namespaces/citi-h09-other/configmaps"
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

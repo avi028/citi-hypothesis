@@ -1,0 +1,38 @@
+# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# per-rule Cilium TracingPolicies named citi-h09-sa-token-v2-<rule-id>.
+#
+# Watches the two Qualys-visible halves of the hypothesis:
+#   sa-token-read  — opens of anything under the service-account mount
+#   k8s-api-egress — outbound connects to the standard API ports
+# The API request itself (resource, namespace, allow/deny) rides inside
+# TLS — that part only exists in the cluster's audit log, not in events.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h09-sa-token
+spec:
+  rules:
+  - name: sa-token-read
+    type: file
+    id: sa-token-read
+    fileOperation: open
+    action: audit
+    # /var/run is a symlink to /run on essentially every modern image —
+    # matchFilePaths sees the RESOLVED path, so the /run prefix is the one
+    # that actually fires (verified). Both are listed for runtimes/images
+    # where /var/run is a real directory.
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /run/secrets/kubernetes.io/serviceaccount/
+      - /var/run/secrets/kubernetes.io/serviceaccount/
+  - name: k8s-api-egress
+    type: network
+    id: k8s-api-egress
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "443"
+      - "6443"

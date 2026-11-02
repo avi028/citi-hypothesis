@@ -1,0 +1,41 @@
+# QCS-H13 — Image Lineage vs Runtime Integrity Change
+#
+# IMAGE side (digest, layers, build history, diff between v1 and v2) is a
+# Qualys platform/registry capability — Tetragon events carry no layer
+# data. RUNTIME side: this FIM rule records every create/write under the
+# writable dir after deployment, i.e. drift that is BY DEFINITION not part
+# of the image. Joining the two (which events have no matching layer) is
+# the platform's job; the sensor provides the drift evidence.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h13-drift
+spec:
+  rules:
+  - name: drift-create
+    type: file
+    id: drift-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /var/qualys-citi/h13/
+  - name: drift-write
+    type: file
+    id: drift-write
+    fileOperation: write
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /var/qualys-citi/h13/
+  - name: drift-open
+    type: file
+    id: drift-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /var/qualys-citi/h13/

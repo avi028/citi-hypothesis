@@ -1,0 +1,28 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-file-drift-enforce
+spec:
+  rules:
+  # Enforcement phase: any process that writes under /tmp/citi-h02-block/
+  # is SIGKILLed at the write (the write itself may partially commit; the
+  # point is the actor is terminated, not silently allowed).
+  - name: drift-block-write
+    type: file
+    id: drift-block-write
+    fileOperation: write
+    action: block
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02-block/
+  # Executing the dropped script is stopped at security_bprm_check: the
+  # binary about to run is matched before exec commits.
+  - name: drift-block-exec
+    type: process
+    id: drift-block-exec
+    action: block
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/citi-h02-block/drift.sh

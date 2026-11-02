@@ -1,0 +1,23 @@
+# Enforcement fallback — kill any process that calls memfd_create.
+# Since matchBinaries cannot resolve a memfd-backed exec to a matchable path
+# (verified in RESULT.md), the primitive itself is the enforcement point.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: citi-h04-memfd-create-block
+spec:
+  kprobes:
+  - call: "sys_memfd_create"
+    syscall: true
+    return: true
+    args:
+    - index: 0
+      type: "string"
+    - index: 1
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchActions:
+      - action: Sigkill

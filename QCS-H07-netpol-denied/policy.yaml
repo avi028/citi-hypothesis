@@ -1,0 +1,17 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h07-netpol-denied
+spec:
+  rules:
+  # Audit every outbound TCP connect to the service port — the question is
+  # whether the ATTEMPT is recorded when the platform denies the flow.
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "8080"

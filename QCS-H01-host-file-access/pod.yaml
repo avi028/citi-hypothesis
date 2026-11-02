@@ -1,0 +1,86 @@
+# QCS-H01 — Container Escape / Host File Access Attempt
+# CRS version support: 1.45+ — v1 file-read covers the hypothesis
+#
+# Applying this manifest creates a dedicated namespace, a service account, and
+# a pod that mounts the worker node's /var/qualys-poc/QCS-H01 read-only and
+# runs ls/stat/cat/sha256sum against the marker file — generating the events
+# the RuntimePolicy in policy.yaml should record.
+#
+# OpenShift: a pod mounting hostPath requires an SCC that allows it (e.g.
+# `oc adm policy add-scc-to-user hostmount-anyuid -z citi-h01-sa -n citi-h01`
+# or an approved custom SCC). The restricted pod below has no hostPath and
+# demonstrates the denied case under restricted-v2.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h01
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h01-sa
+  namespace: citi-h01
+---
+# Negative case: restricted pod — cannot see the host path at all.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h01-restricted
+  namespace: citi-h01
+  labels:
+    app: citi-h01-restricted
+spec:
+  serviceAccountName: citi-h01-sa
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sh", "-c", "ls -l /var/qualys-poc/QCS-H01 2>&1; sleep 3600"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+---
+# Test case: elevated pod with the controlled host directory mounted read-only.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h01-elevated
+  namespace: citi-h01
+  labels:
+    app: citi-h01-elevated
+spec:
+  serviceAccountName: citi-h01-sa
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      TARGET=/var/qualys-poc/QCS-H01/canary.txt
+      ls -l /var/qualys-poc/QCS-H01
+      stat "$TARGET"
+      cat "$TARGET"
+      sha256sum "$TARGET"
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+    - name: host-qualys-poc
+      mountPath: /var/qualys-poc/QCS-H01
+      readOnly: true
+  volumes:
+  - name: host-qualys-poc
+    hostPath:
+      path: /var/qualys-poc/QCS-H01
+      type: Directory

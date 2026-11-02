@@ -1,0 +1,44 @@
+# QCS-H15 — Suspicious Filename and File Integrity Monitoring
+# CRS version support: 1.45+ — v1 file base-policies cover full FIM
+#
+# Creates, modifies, renames, reads, deletes, and re-creates the monitored
+# filenames (login.jsp, Sql.java, package.json) under /tmp/citi-h15 —
+# one of them re-created through a child/runtime script.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h15
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h15-workload
+  namespace: citi-h15
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      mkdir -p /tmp/citi-h15
+      cd /tmp/citi-h15
+      echo "page-v1" > Login.jsp
+      echo "class-v1" > Sql.java
+      echo '{"name":"pkg"}' > package.json
+      echo "page-v2" > Login.jsp              # modify
+      mv Sql.java SqlOld.java                  # rename
+      cat package.json                         # read
+      rm SqlOld.java                           # delete
+      # re-create through a child process (runtime script)
+      sh -c 'echo "page-v3" > /tmp/citi-h15/Login.jsp'
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

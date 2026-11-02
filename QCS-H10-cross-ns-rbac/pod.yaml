@@ -1,0 +1,112 @@
+# QCS-H10 — Cross-Namespace RBAC Access Attempt
+# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover it
+#
+# Source namespace (citi-h10-src) holds the service account + a Role that
+# can only read ConfigMaps there. Target namespace (citi-h10-dst) holds a
+# harmless ConfigMap the SA cannot touch. The pod runs an authorized query
+# in the source namespace, then the same class of query against the target
+# namespace (expected: 403 Forbidden).
+#
+# Qualys-side evidence: token file open + API egress connects + initiating
+# process. Authorization result: OpenShift/K8s audit logs only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h10-src
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h10-dst
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h10-sa
+  namespace: citi-h10-src
+automountServiceAccountToken: true
+---
+# RBAC confined to the source namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: citi-h10-src-read-cm
+  namespace: citi-h10-src
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: citi-h10-src-read-cm
+  namespace: citi-h10-src
+subjects:
+- kind: ServiceAccount
+  name: citi-h10-sa
+  namespace: citi-h10-src
+roleRef:
+  kind: Role
+  name: citi-h10-src-read-cm
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: citi-h10-allowed
+  namespace: citi-h10-src
+data:
+  note: "harmless resource citi-h10-sa MAY read"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: citi-h10-denied
+  namespace: citi-h10-dst
+data:
+  note: "harmless but out of scope for citi-h10-sa (expect 403)"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h10-workload
+  namespace: citi-h10-src
+spec:
+  serviceAccountName: citi-h10-sa
+  automountServiceAccountToken: true
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: curlimages/curl:latest
+    command:
+    - sh
+    - -c
+    - |
+      SADIR=/var/run/secrets/kubernetes.io/serviceaccount
+      API=https://kubernetes.default.svc:443
+      TOKEN=$(cat "$SADIR/token")
+      echo "== allowed: list configmaps in citi-h10-src =="
+      curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API/api/v1/namespaces/citi-h10-src/configmaps" -o /tmp/src.json
+      echo "== allowed: get citi-h10-allowed in citi-h10-src =="
+      curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API/api/v1/namespaces/citi-h10-src/configmaps/citi-h10-allowed" -o /tmp/cm.json
+      echo "== denied: list configmaps in citi-h10-dst =="
+      curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API/api/v1/namespaces/citi-h10-dst/configmaps"
+      echo "== denied: get citi-h10-denied in citi-h10-dst =="
+      curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API/api/v1/namespaces/citi-h10-dst/configmaps/citi-h10-denied"
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

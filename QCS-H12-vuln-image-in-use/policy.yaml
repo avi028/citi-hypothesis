@@ -1,0 +1,22 @@
+# QCS-H12 — Vulnerable Image "In Use" Prioritization
+#
+# The REGISTRY-SCAN leg (vuln discovery, CVSS, fix versions) is a Qualys
+# platform capability — not a Tetragon runtime event. What the runtime
+# sensor CAN prove is the "in use" half: which workload actually EXECUTED
+# the vulnerable binary. This policy flags exec of the target package, so
+# image A (invokes it) generates events and image B (package present, not
+# invoked) generates none — the runtime side of in-use prioritization.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h12-vuln-pkg-exec
+spec:
+  rules:
+  - name: vuln-pkg-exec
+    type: process
+    id: vuln-pkg-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /usr/bin/bash

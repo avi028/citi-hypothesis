@@ -1,0 +1,9 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h05-east-west
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "8080"

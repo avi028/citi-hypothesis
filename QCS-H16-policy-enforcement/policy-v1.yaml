@@ -1,0 +1,12 @@
+# RuntimePolicy v1 — enforcement exists only as action: kill on file
+# operations; there is NO process-exec base-policy, so the exec-block
+# leg of H16 cannot be expressed in v1 (same gap as H02/H03).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h16-probe-block
+spec:
+  base-policy: file-open
+  action: kill
+  monitor-paths:
+  - /tmp/citi-h16-probe.sh

@@ -1,0 +1,19 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h17-payload-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h17-payload.txt
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h17-egress-audit
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "8080"

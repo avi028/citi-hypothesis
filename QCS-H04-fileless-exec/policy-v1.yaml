@@ -1,0 +1,25 @@
+# RuntimePolicy v1 — canary open + outbound connect, mirroring the v2 pair.
+# (v1 monitor-paths are Prefix-matched resolved paths, not filename
+# postfixes — hence the full path here.)
+# memfd fileless exec has NO v1 base-policy — keep tracingpolicy*.yaml.
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h04-canary-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /etc/citi-h04-canary.txt
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h04-egress-audit
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "80"
+  - "443"
+  - "8080"

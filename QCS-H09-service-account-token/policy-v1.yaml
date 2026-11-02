@@ -1,0 +1,24 @@
+# RuntimePolicy v1 — token open + API egress.
+# monitor-paths are Prefix-matched on the RESOLVED path: /var/run is a
+# symlink to /run, so the /run prefix is the one that fires (see H09 v2).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h09-sa-token-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /run/secrets/kubernetes.io/serviceaccount/
+  - /var/run/secrets/kubernetes.io/serviceaccount/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h09-k8s-api-egress
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "443"
+  - "6443"

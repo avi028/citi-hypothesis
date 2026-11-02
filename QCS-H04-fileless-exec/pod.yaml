@@ -1,0 +1,51 @@
+# QCS-H04 — Fileless or Inline Script Execution
+# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover inline/activity legs; memfd/fileless rule = future release (raw TP)
+#
+# Applying this manifest creates a pod that:
+#   1. drops a canary file,
+#   2. runs an inline `sh -c` command touching it,
+#   3. feeds a whole script to the interpreter over stdin (nothing stored),
+# both generating process, file-open and egress activity for the sensor.
+# No special SCC needed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h04
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h04-fileless
+  namespace: citi-h04
+  labels:
+    app: citi-h04-fileless
+spec:
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      MARKER="CITI-H04-$(date +%s)"
+      echo "$MARKER" > /etc/citi-h04-canary.txt
+
+      # case 1: inline -c — the whole script IS the command line
+      sh -c "echo $MARKER-inline; cat /etc/citi-h04-canary.txt; sleep 1"
+
+      # case 2: stdin script — no file, no command-line content
+      sh <<'EOF'
+      echo "CITI-H04-stdin"
+      cat /etc/citi-h04-canary.txt
+      sleep 1
+      EOF
+
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

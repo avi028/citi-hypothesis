@@ -1,0 +1,21 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h10-sa-token-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /run/secrets/kubernetes.io/serviceaccount/
+  - /var/run/secrets/kubernetes.io/serviceaccount/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h10-k8s-api-egress
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "443"
+  - "6443"

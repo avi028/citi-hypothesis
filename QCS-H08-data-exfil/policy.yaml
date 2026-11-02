@@ -1,0 +1,26 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h08-data-exfil
+spec:
+  rules:
+  # Records every open of the synthetic data file — the "read" leg.
+  - name: payload-open
+    type: file
+    id: payload-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h08-payload.txt
+  # Records the outbound connection carrying the upload — the "send" leg.
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "8080"

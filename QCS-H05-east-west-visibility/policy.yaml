@@ -1,0 +1,18 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h05-east-west
+spec:
+  rules:
+  # Records outbound TCP connections to the service port — the east-west
+  # path between namespaces. Source process, src/dst IP, port, protocol
+  # and connect result are all on the event.
+  - name: east-west-egress
+    type: network
+    id: east-west-egress
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "8080"

@@ -1,0 +1,57 @@
+# QCS-H15 — Suspicious Filename and File Integrity Monitoring
+#
+# FIM over a monitored dir. All fileOperations on the selected filenames
+# are recorded with path + operation + process + parent + container.
+# Alerting basis: the policy match (dir prefix + operation), not filename
+# magic — the event carries the filename, the RULE decides what to watch.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim
+spec:
+  rules:
+  - name: fim-create
+    type: file
+    id: fim-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h15/
+  - name: fim-write
+    type: file
+    id: fim-write
+    fileOperation: write
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h15/
+  - name: fim-rename
+    type: file
+    id: fim-rename
+    fileOperation: rename
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h15/
+  - name: fim-delete
+    type: file
+    id: fim-delete
+    fileOperation: delete
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h15/
+  - name: fim-open
+    type: file
+    id: fim-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h15/

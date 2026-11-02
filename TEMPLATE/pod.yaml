@@ -1,0 +1,31 @@
+# k8s/OpenShift workload for lab citi-hXX — generates the activity the
+# policy watches for, once applied. Keep it minimal and non-root unless the
+# hypothesis explicitly requires privilege.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-hXX
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-hXX-workload
+  namespace: citi-hXX
+spec:
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      # TODO: the actions that should trigger the hypothesis' events
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

@@ -1,0 +1,29 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h13-drift-create
+spec:
+  base-policy: file-create
+  action: audit
+  monitor-paths:
+  - /var/qualys-citi/h13/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h13-drift-write
+spec:
+  base-policy: file-write
+  action: audit
+  monitor-paths:
+  - /var/qualys-citi/h13/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h13-drift-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /var/qualys-citi/h13/

@@ -1,0 +1,31 @@
+# Discussion use case — crypto-mining process detection: behavioral
+# signature = known miner binary names + connections to known mining
+# pools (process rule + egress rule on pool ports). Mechanism identical
+# to H12 (binary match) + H05/H06 (egress) — combined here.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-disc-miner
+spec:
+  rules:
+  - name: miner-exec
+    type: process
+    id: miner-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/xmrig
+      - /usr/bin/xmrig
+      - /tmp/kdevtmpfsi
+  - name: pool-egress
+    type: network
+    id: pool-egress
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "3333"
+      - "4444"
+      - "5555"

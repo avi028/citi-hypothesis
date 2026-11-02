@@ -1,0 +1,26 @@
+# Raw Cilium TracingPolicy — DNS leg of the correlation chain. Lookups are
+# UDP; ip_output with the skb arg (index 2) on DPort 53 catches the DNS
+# packet. Same shape as H06's verified dns-audit policy.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: citi-h18-dns
+spec:
+  kprobes:
+  - call: "ip_output"
+    syscall: false
+    args:
+    - index: 2
+      type: "skb"
+    selectors:
+    - matchArgs:
+      - index: 2
+        operator: "DPort"
+        values:
+        - "53"
+      - index: 2
+        operator: "Protocol"
+        values:
+        - "IPPROTO_UDP"
+      matchActions:
+      - action: Post

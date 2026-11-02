@@ -1,0 +1,17 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h01-host-file-access
+spec:
+  rules:
+  - name: host-path-read
+    type: file
+    id: host-file-read
+    fileOperation: read
+    action: audit
+    # Postfix exercises the supported operator while staying specific to the
+    # marker file: it matches any resolved path ending in the suffix below.
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - /QCS-H01/canary.txt

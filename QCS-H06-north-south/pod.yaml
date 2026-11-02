@@ -1,0 +1,46 @@
+# QCS-H06 — Unusual North-South Network Connection
+# CRS version support: 1.45+ — v1 net-tcp-open covers TCP; UDP/DNS visibility = future release (raw TP)
+#
+# Pod that performs: DNS resolution then a TCP/HTTP connection to the
+# approved destination, a second connection to another approved endpoint,
+# and an attempt on a port outside the monitored set for comparison.
+# Egress should be restricted to the approved destinations via OpenShift
+# egress controls (EgressFirewall/EgressNetworkPolicy) — noted for the
+# field deployment.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h06
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h06-client
+  namespace: citi-h06
+  labels:
+    app: citi-h06-client
+spec:
+  restartPolicy: Never
+  containers:
+  - name: client
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command:
+    - sh
+    - -c
+    - |
+      APPROVED=approved-http.citi-h06-target.svc.cluster.local
+      # DNS resolution followed by the connection
+      getent hosts "$APPROVED"
+      curl -s -o /dev/null "http://$APPROVED/" || true
+      # second approved test destination
+      curl -s -o /dev/null "http://$APPROVED:8080/" || true
+      # attempt on a port outside the approved/monitored set
+      curl -s --connect-timeout 2 -o /dev/null "http://$APPROVED:9090/" || true
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

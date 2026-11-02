@@ -1,0 +1,29 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h04-fileless-exec
+spec:
+  rules:
+  # The fileless script itself leaves no binary on disk — what betrays it is
+  # the activity it generates. This rule records every open of the canary.
+  - name: canary-open
+    type: file
+    id: canary-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h04-canary.txt
+  # Records the outbound connection the inline script makes.
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "80"
+      - "443"
+      - "8080"

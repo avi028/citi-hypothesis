@@ -1,0 +1,21 @@
+# RuntimePolicy v1 — no process-exec base-policy (chain-exec leg has no
+# v1 form); file + network legs expressed as v1.
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h18-payload-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h18-payload.txt
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h18-egress-audit
+spec:
+  base-policy: net-tcp-open
+  action: audit
+  monitor-dest-ports:
+  - "8080"

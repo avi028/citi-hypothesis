@@ -1,0 +1,33 @@
+# QCS-H19 — Sensor Coverage and Health Failure Detection
+# CRS version support: 1.45+ — v1 file-open health probe; degraded-node reporting = platform
+#
+# Pod that performs a trivial health-probe exec (`true`) on a schedule so
+# a healthy sensor shows a steady, searchable event flow — and an
+# interrupted sensor shows a visible gap.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h19
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h19-workload
+  namespace: citi-h19
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      while true; do /usr/bin/true; sleep 5; done
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

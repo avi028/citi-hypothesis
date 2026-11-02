@@ -1,0 +1,51 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-file-drift
+spec:
+  rules:
+  - name: drift-create
+    type: file
+    id: drift-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02/
+  - name: drift-write
+    type: file
+    id: drift-write
+    fileOperation: write
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02/
+  - name: drift-metadata
+    type: file
+    id: drift-metadata
+    fileOperation: metadata
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02/
+  - name: drift-rename
+    type: file
+    id: drift-rename
+    fileOperation: rename
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02/
+  - name: drift-delete
+    type: file
+    id: drift-delete
+    fileOperation: delete
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /tmp/citi-h02/

@@ -1,0 +1,92 @@
+# QCS-H07 — Network Policy Violation and Denied Connection Attempt
+# CRS version support: 1.45+ — v1 net-tcp-open covers it
+#
+# Two namespaces, a service in the target, and two NetworkPolicy manifests:
+# apply `allow-citi-h07-client` for the baseline, then delete it and apply
+# `default-deny-citi-h07` and repeat the same curl — comparing telemetry
+# for allowed vs denied flows.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h07-client
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h07-target
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h07-httpd
+  namespace: citi-h07-target
+  labels:
+    app: citi-h07-httpd
+spec:
+  containers:
+  - name: httpd
+    image: registry.access.redhat.com/ubi9/httpd-24:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: citi-h07-svc
+  namespace: citi-h07-target
+spec:
+  selector:
+    app: citi-h07-httpd
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# BASELINE — apply this first, verify connects succeed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-citi-h07-client
+  namespace: citi-h07-target
+spec:
+  podSelector:
+    matchLabels:
+      app: citi-h07-httpd
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: citi-h07-client
+    ports:
+    - port: 8080
+---
+# DENY CASE — swap to this for the violation attempt.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-citi-h07
+  namespace: citi-h07-target
+spec:
+  podSelector:
+    matchLabels:
+      app: citi-h07-httpd
+  policyTypes: ["Ingress"]
+  ingress: []
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h07-toolbox
+  namespace: citi-h07-client
+  labels:
+    app: citi-h07-toolbox
+spec:
+  containers:
+  - name: client
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command: ["sh", "-c", "sleep 3600"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

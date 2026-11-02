@@ -1,0 +1,62 @@
+# QCS-H13 — Image Lineage vs Runtime Integrity Change
+# CRS version support: 1.45+ — v1 file-create/write/open cover drift
+#
+# Pod image version 1. A companion pod mounts version 2 (same tag updated,
+# different digest). After deploy, a runtime change is introduced under
+# /var/qualys-citi/h13 — the sensor should flag it as drift (it is not in
+# any image layer).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h13
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h13-v1
+  namespace: citi-h13
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      mkdir -p /var/qualys-citi/h13
+      # image-baked content (part of the image; NOT drift)
+      echo "baked-v1" > /var/qualys-citi/h13/baked.txt
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h13-v2
+  namespace: citi-h13
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      mkdir -p /var/qualys-citi/h13
+      echo "baked-v2" > /var/qualys-citi/h13/baked.txt
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

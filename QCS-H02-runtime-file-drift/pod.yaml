@@ -1,0 +1,65 @@
+# QCS-H02 — Runtime File Drift and Unauthorized Executable Creation
+# CRS version support: 1.45+ — v1 file ops + action kill cover drift & enforce; exec-block rule is v2-only (1.46+)
+#
+# Applying this manifest creates a standard non-root pod that drops a new
+# script into /tmp after startup, modifies it, makes it executable, runs it,
+# then renames and deletes it — the full drift lifecycle that policy.yaml
+# (audit) and policy-enforce.yaml (enforcement) should observe.
+#
+# OpenShift: no special SCC needed — everything happens in the pod's own
+# writable /tmp, so the default restricted-v2 profile is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h02
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h02-sa
+  namespace: citi-h02
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h02-drift
+  namespace: citi-h02
+  labels:
+    app: citi-h02-drift
+spec:
+  serviceAccountName: citi-h02-sa
+  restartPolicy: Never
+  containers:
+  - name: drifter
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      DIR=/tmp/citi-h02
+      mkdir -p "$DIR"
+
+      # 1. introduce a new executable after deployment
+      printf '#!/bin/sh\necho drift-v1\n' > "$DIR/drift.sh"
+
+      # 2. modify it
+      printf '#!/bin/sh\necho drift-v2\n' >> "$DIR/drift.sh"
+
+      # 3. make it executable and run it
+      chmod 755 "$DIR/drift.sh"
+      stat "$DIR/drift.sh"
+      sha256sum "$DIR/drift.sh"
+      "$DIR/drift.sh"
+
+      # 4. rename and delete it
+      mv "$DIR/drift.sh" "$DIR/drift.sh.renamed"
+      rm "$DIR/drift.sh.renamed"
+
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

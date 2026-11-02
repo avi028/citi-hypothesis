@@ -1,0 +1,13 @@
+# Enforcement variant (mirrors policy-enforce.yaml): action: kill
+# SIGKILLs the actor. v1 has no exec/process base-policy — the
+# "block the exec of the dropped script" leg has NO v1 equivalent
+# (security_bprm_check is only reachable via v2 process rules).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-block-write
+spec:
+  base-policy: file-write
+  action: kill
+  monitor-paths:
+  - /tmp/citi-h02-block/

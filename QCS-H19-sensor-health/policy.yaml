@@ -1,0 +1,22 @@
+# QCS-H19 — Sensor Coverage and Health Failure Detection
+#
+# No runtime detection policy needed — this hypothesis is about the
+# SENSOR ITSELF. Local proof of the health cycle: the agent on :54321
+# (process_exec/exit baseline + policy events), the capture stream, and
+# what an interruption looks like (event gap, agent log) and how recovery
+# resumes events. Node-level "degraded/not reporting" status is a Qualys
+# platform (sensor profile) + OpenShift DaemonSet view.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h19-health-probe
+spec:
+  rules:
+  - name: health-exec
+    type: process
+    id: health-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /usr/bin/true

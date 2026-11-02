@@ -1,0 +1,39 @@
+# QCS-H18 — Process, File, and Network Event Correlation
+#
+# Every leg of the chain is a separately-matched signal; the events are
+# joined by exec_id/parent_exec_id + container id + a unique marker
+# (CITI-H18-<n> appears in script and payload names). DNS is UDP —
+# tcp_connect never sees it; the raw tracingpolicy-dns.yaml (ip_output,
+# :53) covers that leg.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h18-chain
+spec:
+  rules:
+  - name: chain-exec
+    type: process
+    id: chain-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/citi-h18-chain.sh
+  - name: payload-open
+    type: file
+    id: payload-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h18-payload.txt
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "8080"

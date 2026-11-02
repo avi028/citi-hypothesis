@@ -1,0 +1,24 @@
+# Raw Cilium TracingPolicy fallback — catches the fileless primitive itself.
+# memfd_create is not expressible in RuntimePolicy v2 today (no rule type/
+# fileOperation maps to it), so this lab uses the verbatim cilium.io policy.
+# Future implementation note: a v2 `fileless`/`memfd` rule type.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: citi-h04-memfd-create
+spec:
+  kprobes:
+  - call: "sys_memfd_create"
+    syscall: true
+    return: true
+    args:
+    - index: 0
+      type: "string"       # memfd name (attacker-chosen, often innocuous)
+    - index: 1
+      type: "int"          # MFD_* flags
+    returnArg:
+      index: 0
+      type: "int"          # the anonymous fd
+    selectors:
+    - matchActions:
+      - action: Post

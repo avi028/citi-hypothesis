@@ -1,0 +1,64 @@
+# QCS-H11 — Privilege Escalation Configuration Detection
+# CRS version support: 1.46+ — v2 exec events carry cap context; cap-change rule = future release (raw TP)
+#
+# One manifest per risky setting, applied SEPARATELY so admission and
+# runtime evidence stay attributable. All pods non-root-hostile EXCEPT the
+# tested dimension. The "elevated" pod below is the privileged dimension
+# (SCC would need to allow it on OpenShift).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h11
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h11-sa
+  namespace: citi-h11
+---
+# Baseline — fully restricted pod (control).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h11-restricted
+  namespace: citi-h11
+spec:
+  serviceAccountName: citi-h11-sa
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sh", "-c", "id; sleep 3600"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+---
+# Elevated — adds CAP_SYS_ADMIN and runs as root (the risky dimension).
+# OpenShift: requires an approved custom SCC (e.g. anyuid + SYS_ADMIN).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h11-elevated
+  namespace: citi-h11
+spec:
+  serviceAccountName: citi-h11-sa
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      id
+      capsh --print 2>/dev/null || cat /proc/self/status | grep Cap
+      sleep 3600
+    securityContext:
+      runAsUser: 0
+      allowPrivilegeEscalation: true
+      capabilities:
+        add: ["SYS_ADMIN"]

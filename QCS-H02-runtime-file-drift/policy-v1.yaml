@@ -1,0 +1,51 @@
+# RuntimePolicy v1 — one document per base-policy (v1 has no rule list;
+# each CR is a single base-policy + monitor set).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-create
+spec:
+  base-policy: file-create
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h02/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-write
+spec:
+  base-policy: file-write
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h02/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-metadata
+spec:
+  base-policy: file-metadata
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h02/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-rename
+spec:
+  base-policy: file-rename
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h02/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h02-drift-delete
+spec:
+  base-policy: file-delete
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h02/

@@ -1,0 +1,13 @@
+# RuntimePolicy v1 — v1 has NO process-exec base-policy (security_bprm_check
+# is v2-only), so the closest v1 form is file-open on the suspicious script:
+# the open fires when the interpreter loads the script — i.e. at launch.
+# Lineage itself rides on the base exec/exit stream either way.
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h03-chain-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h03-chain.sh

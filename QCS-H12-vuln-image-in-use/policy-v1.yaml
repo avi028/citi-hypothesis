@@ -1,0 +1,11 @@
+# RuntimePolicy v1 — no process-exec base-policy; closest is file-open on
+# the vulnerable binary (fires when it is loaded for execution).
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h12-vuln-pkg-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /usr/bin/bash

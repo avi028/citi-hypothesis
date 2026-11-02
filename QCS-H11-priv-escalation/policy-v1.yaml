@@ -1,0 +1,13 @@
+# RuntimePolicy v1 — no capability/privilege base-policy exists (v1 is
+# file/network only). Closest form: file-read/open on the probe binary
+# when it is executed (the interpreter reads it at exec). The elevated
+# context itself is not expressible in v1.
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h11-probe-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /usr/bin/id

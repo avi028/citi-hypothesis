@@ -1,0 +1,31 @@
+# QCS-H17 — Deleted Pod Historical Activity and Event Retention
+#
+# Records the evidence-generating activity of the short-lived workload so
+# that after it is deleted the events can be searched back by the recorded
+# identifiers. (Retention WINDOW itself is a platform setting — the sensor
+# writes events to the configured export/backend; nothing here is deleted
+# with the pod.)
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h17-evidence
+spec:
+  rules:
+  - name: payload-open
+    type: file
+    id: payload-open
+    fileOperation: open
+    action: audit
+    matchFilePaths:
+    - operator: Postfix
+      values:
+      - citi-h17-payload.txt
+  - name: egress-audit
+    type: network
+    id: egress-audit
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "8080"

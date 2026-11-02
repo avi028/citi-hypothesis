@@ -1,0 +1,35 @@
+# QCS-H16 — Runtime Policy Enforcement / Process Blocking
+#
+# The SAME policy shape in two modes: audit (process rule, action: audit)
+# vs enforce (action: block). Blocking on a process rule hooks
+# security_bprm_check — the exec is stopped before it commits (SIGKILL,
+# rc=137). The pod itself stays up; only the violating process dies.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h16-probe-audit
+spec:
+  rules:
+  - name: probe-exec-audit
+    type: process
+    id: probe-exec-audit
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/citi-h16-probe.sh
+---
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h16-probe-enforce
+spec:
+  rules:
+  - name: probe-exec-block
+    type: process
+    id: probe-exec-block
+    action: block
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/citi-h16-probe.sh

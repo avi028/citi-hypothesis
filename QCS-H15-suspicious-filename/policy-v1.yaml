@@ -1,0 +1,49 @@
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim-create
+spec:
+  base-policy: file-create
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h15/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim-write
+spec:
+  base-policy: file-write
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h15/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim-rename
+spec:
+  base-policy: file-rename
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h15/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim-delete
+spec:
+  base-policy: file-delete
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h15/
+---
+apiVersion: qualys.com/v1
+kind: RuntimePolicy
+metadata:
+  name: citi-h15-fim-open
+spec:
+  base-policy: file-open
+  action: audit
+  monitor-paths:
+  - /tmp/citi-h15/

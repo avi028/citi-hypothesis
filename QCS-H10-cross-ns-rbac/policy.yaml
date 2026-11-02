@@ -1,0 +1,37 @@
+# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# per-rule Cilium TracingPolicies named citi-h10-cross-ns-v2-<rule-id>.
+#
+# Same two Qualys-visible surfaces as H09, here framing authorized vs
+# unauthorized API operations: the token file open tells you WHICH
+# workload identity is in play, the egress connect tells you the workload
+# talked to the API. Whether the API allowed the operation is only in
+# the cluster audit log — both allowed and denied calls look identical
+# on the wire (see RESULT.md / QCS-H06, H07).
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h10-cross-ns
+spec:
+  rules:
+  - name: sa-token-read
+    type: file
+    id: sa-token-read
+    fileOperation: open
+    action: audit
+    # matchFilePaths sees the RESOLVED path — /var/run is a symlink to
+    # /run, so the /run prefix is the one that fires (see QCS-H09).
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /run/secrets/kubernetes.io/serviceaccount/
+      - /var/run/secrets/kubernetes.io/serviceaccount/
+  - name: k8s-api-egress
+    type: network
+    id: k8s-api-egress
+    direction: egress
+    action: audit
+    matchPorts:
+    - operator: In
+      values:
+      - "443"
+      - "6443"

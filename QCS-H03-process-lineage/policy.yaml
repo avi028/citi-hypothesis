@@ -1,0 +1,17 @@
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h03-process-lineage
+spec:
+  rules:
+  # Flags the suspicious entry point: any exec of the dropped chain script.
+  # Lineage itself is emitted by the base sensor for every process — this
+  # rule just marks the exec we care about in the stream.
+  - name: chain-exec
+    type: process
+    id: chain-exec
+    action: audit
+    matchBinaries:
+    - operator: In
+      values:
+      - /tmp/citi-h03-chain.sh

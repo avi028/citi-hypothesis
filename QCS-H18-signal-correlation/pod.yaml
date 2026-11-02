@@ -1,0 +1,44 @@
+# QCS-H18 — Process, File, and Network Event Correlation
+# CRS version support: 1.46+ — v2 chain legs; DNS leg = future release (raw TP)
+#
+# One pod runs the full chain: parent shell creates a runtime script and a
+# synthetic payload, the script reads the payload, resolves an internal
+# hostname (DNS), and uploads the payload to the controlled endpoint.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h18
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h18-workload
+  namespace: citi-h18
+spec:
+  restartPolicy: Never
+  containers:
+  - name: app
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      MARKER="CITI-H18-7749"
+      echo "payload-$MARKER" > /tmp/citi-h18-payload.txt
+      cat > /tmp/citi-h18-chain.sh <<'SH'
+#!/bin/sh
+cat /tmp/citi-h18-payload.txt
+getent hosts citi-h18-svc.citi-h18.svc.cluster.local 2>/dev/null || true
+wget -q -T 3 --post-file /tmp/citi-h18-payload.txt -O /dev/null http://citi-h18-svc:8080/upload
+SH
+      chmod +x /tmp/citi-h18-chain.sh
+      /tmp/citi-h18-chain.sh
+      echo "CHAIN-DONE"
+      sleep 3600
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
