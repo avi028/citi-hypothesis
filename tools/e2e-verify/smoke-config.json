@@ -1,6 +1,0 @@
-{
-  "ssh": { "host": "127.0.0.1", "user": "nobody", "port": 22, "identityFile": "C:/nope/id_ed25519" },
-  "browser": { "channel": "msedge", "headless": true, "userDataDir": ".session-smoke", "viewport": { "width": 900, "height": 600 } },
-  "page": { "url": "http://127.0.0.1:8989", "fullPage": false, "settleMs": 500 },
-  "diff": { "threshold": 0.1, "minRegion": 8, "mergeGap": 24 }
-}

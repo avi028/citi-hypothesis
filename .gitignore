@@ -12,8 +12,4 @@ Desktop.ini
 *.exe
 *.test
 /tools/bin/
-/tools/e2e-verify/node_modules/
-/tools/e2e-verify/artifacts/
-/tools/e2e-verify/.session*/
-/tools/e2e-verify/config.json
-/tools/e2e-verify/.env
+/tools/e2e-verify/
