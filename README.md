@@ -28,8 +28,8 @@ kernel hooks, real workload, real events:
 
 ```
 stage 1  ebpf-agent agent running            (setup.sh or manual, on :54321)
-stage 2  tetra getevents -o json >> events.jsonl   (background capture)
-stage 3  ./tetra tracingpolicy add <lab>/policy.yaml
+stage 2  ebpf-operator getevents -o json >> events.jsonl   (background capture)
+stage 3  ./ebpf-operator tracingpolicy add <lab>/policy.yaml
 stage 4  docker run/exec <workload>        (generates the activity)
 stage 5  grep the capture file → verify policy_name, binary, args,
          parent, docker id, sock tuple, action
@@ -45,12 +45,12 @@ cluster, no platform — the sensor path is exercised end-to-end.
 sudo citi-hypothesis/setup.sh        # checks env, builds, starts ebpf-agent + capture
 
 # run a lab
-./tetra tracingpolicy add citi-hypothesis/QCS-H02-runtime-file-drift/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H02-runtime-file-drift/policy.yaml
 docker run --rm debian:stable-slim sh -c 'mkdir -p /tmp/citi-h02 && echo x > /tmp/citi-h02/a'
 tail /tmp/citi-labs/events.jsonl     # detection records land here
 
 # cleanup
-./tetra tracingpolicy delete citi-h02-file-drift --all-rules
+./ebpf-operator tracingpolicy delete citi-h02-file-drift --all-rules
 sudo citi-hypothesis/teardown.sh
 ```
 
@@ -69,7 +69,7 @@ sudo citi-hypothesis/teardown.sh
 
 ```
 citi-hypothesis/<LAB-NAME>/
-├── policy.yaml      # RuntimePolicy v2 (auto-translated by tetra)
+├── policy.yaml      # RuntimePolicy v2 (auto-translated by ebpf-operator)
 ├── policy-v1.yaml   # RuntimePolicy v1 (legacy form — see below)
 ├── pod.yaml         # k8s/OpenShift manifest that generates the activity
 ├── RESULT.md        # hypothesis, what we ran, what we saw, verdict
@@ -82,14 +82,14 @@ Every lab also ships `policy-v1.yaml`: the same detection in the legacy
 `qualys.com/v1` schema (`spec.base-policy` + `monitor-*`/`match-binaries`
 + `action`). One document per base-policy — v1 has no rule list.
 
-`tetra` cannot ingest v1 directly (that path belongs to the cluster's
+`ebpf-operator` cannot ingest v1 directly (that path belongs to the cluster's
 conversion webhook + operator). To test locally, run the same builders
 the operator uses:
 
 ```bash
 go build -mod=mod -o /tmp/v1convert ./citi-hypothesis/tools/v1convert
 /tmp/v1convert <lab>/policy-v1.yaml > /tmp/tp.yaml
-./tetra tracingpolicy add /tmp/tp.yaml
+./ebpf-operator tracingpolicy add /tmp/tp.yaml
 ```
 
 v1 differences vs v2 (verified by these labs):
@@ -127,7 +127,7 @@ then record the outcome in `RESULT.md` — plain language, verdict up front.
 If a hypothesis needs a syscall/kprobe/tracepoint v2 cannot express —
 e.g. `memfd_create`, `ptrace`, `mount`, UDP `ip_output`, uprobes — ship a
 native **Cilium TracingPolicy** (`apiVersion: cilium.io/v1alpha1`) in the
-lab as `tracingpolicy.yaml`. `tetra tracingpolicy add` applies it
+lab as `tracingpolicy.yaml`. `ebpf-operator tracingpolicy add` applies it
 verbatim; see `TEMPLATE/tracingpolicy.yaml` and the working examples in
 QCS-H04 (`sys_memfd_create`) and QCS-H06 (UDP `:53`).
 
@@ -410,7 +410,7 @@ Change done:
   hypothesis execution flow (E1–E5); not-covered points listed above.
 - Environment note: the running agent had been replaced by the matchCmdArgs
   e2e session (writes `/tmp/e2e-check/export.jsonl`); restarted the lab
-  capture (`tetra getevents -o json` → fresh `/tmp/citi-labs/events.jsonl`).
+  capture (`ebpf-operator getevents -o json` → fresh `/tmp/citi-labs/events.jsonl`).
 
 H02 runtime file drift — eBPF-Agent events observed (policy `citi-h02-file-drift`):
 
@@ -455,4 +455,4 @@ Enforce mode (policy `citi-h02-file-drift-enforce`, `action: block`):
 - **`pod`/`namespace` fields populate under k8s/OpenShift — verified in
   cluster runs**; plain docker shows the `docker` container id only (H03/H05).
 - **Per-rule policies** are named `<policy>-v2-<rule-id>`; remove them
-  with `tetra tracingpolicy delete <policy> --all-rules`.
+  with `ebpf-operator tracingpolicy delete <policy> --all-rules`.

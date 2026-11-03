@@ -86,8 +86,8 @@ searchable in argv — the full sequence reconstructs in order.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H18-signal-correlation/policy.yaml
-./tetra tracingpolicy add citi-hypothesis/QCS-H18-signal-correlation/tracingpolicy-dns.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H18-signal-correlation/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H18-signal-correlation/tracingpolicy-dns.yaml
 docker run --rm debian:stable-slim bash -c '
   MARKER="CITI-H18-9933"
   echo "payload-$MARKER" > /tmp/citi-h18-payload.txt

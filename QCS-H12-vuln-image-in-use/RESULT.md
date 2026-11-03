@@ -80,7 +80,7 @@ that never ran it.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H12-vuln-image-in-use/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H12-vuln-image-in-use/policy.yaml
 docker run --rm debian:stable-slim bash -c 'echo in-use-marker'   # A: invokes bash
 docker run --rm debian:stable-slim sh -c 'echo never-runs-bash'    # B: does not
 ```

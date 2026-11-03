@@ -213,7 +213,7 @@ spec:
 
 ### Observed data (v1 run)
 
-Converted + load-verified (`v1convert` → `tetra add`). No capability base-policy in v1 — `file-open` on the probe binary is the closest form.
+Converted + load-verified (`v1convert` → `ebpf-operator add`). No capability base-policy in v1 — `file-open` on the probe binary is the closest form.
 
 ---
 

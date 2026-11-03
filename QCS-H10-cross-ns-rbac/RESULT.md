@@ -96,7 +96,7 @@ the connection; the audit log proves the identity and the denial.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H10-cross-ns-rbac/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H10-cross-ns-rbac/policy.yaml
 docker run --rm --name citi-h10 \
   -v /tmp/citi-h09-sa:/var/run/secrets/kubernetes.io/serviceaccount:ro \
   debian:stable-slim bash -c '

@@ -85,7 +85,7 @@ termination, and image blocklisting:
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H16-policy-enforcement/policy.yaml  # audit doc first
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H16-policy-enforcement/policy.yaml  # audit doc first
 docker run --rm debian:stable-slim bash -c 'printf "#!/bin/sh\necho CITI-H16-PROBE-RAN\nexit 0\n" > /tmp/citi-h16-probe.sh
   chmod +x /tmp/citi-h16-probe.sh; /tmp/citi-h16-probe.sh; echo "rc=$?"'
 # then apply the enforce doc and re-run the same container flow

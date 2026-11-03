@@ -95,7 +95,7 @@ head -c 400 /dev/urandom | base64 | tr -d '\n' > /tmp/citi-h09-sa/token
 echo FAKE-CA-BUNDLE > /tmp/citi-h09-sa/ca.crt
 python3 -m http.server 6443 --bind 0.0.0.0 &        # stand-in API listener
 
-./tetra tracingpolicy add citi-hypothesis/QCS-H09-service-account-token/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H09-service-account-token/policy.yaml
 docker run --rm --name citi-h09 \
   -v /tmp/citi-h09-sa:/var/run/secrets/kubernetes.io/serviceaccount:ro \
   debian:stable-slim bash -c '

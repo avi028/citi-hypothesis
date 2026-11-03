@@ -82,7 +82,7 @@ known sha256 (7ed7cf5c…32e3) appears nowhere in telemetry.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H14-file-hash/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H14-file-hash/policy.yaml
 docker run --rm debian:stable-slim bash -c '
   printf "EICAR-SIMULATION citi-h14-marker\n" > /etc/citi-h14-marker.txt
   sha256sum /etc/citi-h14-marker.txt

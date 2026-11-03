@@ -9,21 +9,21 @@ set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 RUN_DIR=${RUN_DIR:-/tmp/citi-labs}
-TETRA=${TETRA:-$ROOT/tetra}
+EBPF_OPERATOR=${EBPF_OPERATOR:-$ROOT/ebpf-operator}
 
 say() { echo "[teardown] $*"; }
 
 # stop capture
-if [[ -f "$RUN_DIR/tetra.pid" ]]; then
-    kill "$(cat "$RUN_DIR/tetra.pid")" 2>/dev/null || true
-    rm -f "$RUN_DIR/tetra.pid"
+if [[ -f "$RUN_DIR/ebpf-operator.pid" ]]; then
+    kill "$(cat "$RUN_DIR/ebpf-operator.pid")" 2>/dev/null || true
+    rm -f "$RUN_DIR/ebpf-operator.pid"
     say "stopped event capture"
 fi
 
 # remove loaded policies (only if an agent is still reachable)
 if (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null; then
-    "$TETRA" tracingpolicy list 2>/dev/null | awk 'NR>1 && $2 {print $2}' | while read -r name; do
-        "$TETRA" tracingpolicy delete "$name" >/dev/null 2>&1 \
+    "$EBPF_OPERATOR" tracingpolicy list 2>/dev/null | awk 'NR>1 && $2 {print $2}' | while read -r name; do
+        "$EBPF_OPERATOR" tracingpolicy delete "$name" >/dev/null 2>&1 \
             && say "deleted policy $name" || true
     done
 fi

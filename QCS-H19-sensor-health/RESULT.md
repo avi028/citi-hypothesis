@@ -84,7 +84,7 @@ platform's sensor-profile view of exactly this cycle.
 ## Local proof commands
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H19-sensor-health/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H19-sensor-health/policy.yaml
 docker run --rm debian:stable-slim /usr/bin/true        # baseline → event
 kill $(pgrep -x ebpf-agent)                                # interruption
 docker run --rm debian:stable-slim /usr/bin/true        # outage → NO event

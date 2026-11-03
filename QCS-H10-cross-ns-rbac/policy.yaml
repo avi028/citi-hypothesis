@@ -1,4 +1,4 @@
-# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# RuntimePolicy v2 — auto-translated by `ebpf-operator tracingpolicy add` into
 # per-rule Cilium TracingPolicies named citi-h10-cross-ns-v2-<rule-id>.
 #
 # Same two Qualys-visible surfaces as H09, here framing authorized vs

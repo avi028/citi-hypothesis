@@ -95,8 +95,8 @@ the flag; current agent runs without it).
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/policy.yaml
-./tetra tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/tracingpolicy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/tracingpolicy.yaml
 docker run --rm --cap-add=SYS_ADMIN debian:stable-slim id   # elevated
 docker run --rm debian:stable-slim id                        # control
 ```

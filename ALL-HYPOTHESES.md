@@ -23,7 +23,7 @@ Base version: `release/v1.6-1-q5`.
   fire on container opens only, never host opens of the same path.
 - No v1 base-policy for process-exec, capabilities, memfd, DNS/UDP, or
   custom hooks — those need v2 process rules or raw TracingPolicy.
-- `tetra tracingpolicy add` cannot ingest v1 YAML directly — the cluster
+- `ebpf-operator tracingpolicy add` cannot ingest v1 YAML directly — the cluster
   converts it via the v1→v2 webhook; locally, `tools/v1convert` runs the
   same `controllers.Create*Policy` builders to emit the TracingPolicy.
 
@@ -108,7 +108,7 @@ which file.
 # In a cluster the API server converts this to the v2 hub (spec.legacy)
 # and the operator builds the TracingPolicy from base-policy +
 # monitor-*/match-binaries. Locally, citi-hypothesis/tools/v1convert runs
-# the same builders to emit the TracingPolicy YAML for `tetra`.
+# the same builders to emit the TracingPolicy YAML for `ebpf-operator`.
 # NOTE: monitor-paths are matched as a PREFIX of the resolved path.
 apiVersion: qualys.com/v1
 kind: RuntimePolicy
@@ -1515,7 +1515,7 @@ spec:
 ### RuntimePolicy v2 — `QCS-H09-service-account-token/policy.yaml`
 
 ```yaml
-# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# RuntimePolicy v2 — auto-translated by `ebpf-operator tracingpolicy add` into
 # per-rule Cilium TracingPolicies named citi-h09-sa-token-v2-<rule-id>.
 #
 # Watches the two Qualys-visible halves of the hypothesis:
@@ -1732,7 +1732,7 @@ spec:
 ### RuntimePolicy v2 — `QCS-H10-cross-ns-rbac/policy.yaml`
 
 ```yaml
-# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# RuntimePolicy v2 — auto-translated by `ebpf-operator tracingpolicy add` into
 # per-rule Cilium TracingPolicies named citi-h10-cross-ns-v2-<rule-id>.
 #
 # Same two Qualys-visible surfaces as H09, here framing authorized vs
@@ -2090,7 +2090,7 @@ spec:
 
 ### Observed data (v1 run)
 
-Converted + load-verified (`v1convert` → `tetra add`). No capability base-policy in v1 — `file-open` on the probe binary is the closest form.
+Converted + load-verified (`v1convert` → `ebpf-operator add`). No capability base-policy in v1 — `file-open` on the probe binary is the closest form.
 
 ---
 

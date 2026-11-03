@@ -2,7 +2,7 @@
 #
 # Use this ONLY when RuntimePolicy v2 cannot express the hook a hypothesis
 # needs (e.g. a syscall/LSM hook outside the fileOperation table, uprobes,
-# tracepoints, custom args). `tetra tracingpolicy add` applies this
+# tracepoints, custom args). `ebpf-operator tracingpolicy add` applies this
 # verbatim — there is no translation.
 #
 # When you use this file, add a "Future implementation" section to

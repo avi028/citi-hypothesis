@@ -82,7 +82,7 @@ not delete evidence with the pod.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H17-deleted-pod-retention/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H17-deleted-pod-retention/policy.yaml
 CID=$(docker run --rm -d --name citi-h17-burst debian:stable-slim sleep 300)
 docker exec citi-h17-burst bash -c 'echo "payload CITI-H17-RETENTION" > /tmp/citi-h17-payload.txt
   cat /tmp/citi-h17-payload.txt

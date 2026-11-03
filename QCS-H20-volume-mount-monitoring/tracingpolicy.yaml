@@ -5,7 +5,7 @@
 # mount(2) call with its source, target, filesystem type, mount flags and
 # the return value (0 = success, negative = errno such as -EPERM).
 #
-# Applied verbatim by `tetra tracingpolicy add` (no v2 translation).
+# Applied verbatim by `ebpf-operator tracingpolicy add` (no v2 translation).
 #
 # int mount(const char *source, const char *target,
 #           const char *filesystemtype, unsigned long mountflags,

@@ -71,7 +71,7 @@ pod apply — cluster). See README "Execution points not covered".
 
 | File | Purpose |
 |---|---|
-| `policy.yaml` | The detection rule (load with `tetra tracingpolicy add`) |
+| `policy.yaml` | The detection rule (load with `ebpf-operator tracingpolicy add`) |
 | `pod.yaml` | Apply to the cluster to generate the test activity |
 | `RESULT.md` | This document |
 

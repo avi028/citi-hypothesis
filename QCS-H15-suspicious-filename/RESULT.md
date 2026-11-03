@@ -87,7 +87,7 @@ operation, who did it".
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H15-suspicious-filename/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H15-suspicious-filename/policy.yaml
 docker run --rm debian:stable-slim bash -c '
   mkdir -p /tmp/citi-h15 && cd /tmp/citi-h15
   echo page-v1 > Login.jsp; echo class-v1 > Sql.java; echo "{\"name\":\"pkg\"}" > package.json

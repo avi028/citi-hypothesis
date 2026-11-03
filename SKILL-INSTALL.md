@@ -12,7 +12,7 @@ repo, and includes the full SKILL.md content below.
   v2 + v1 policies, a `pod.yaml` workload, and a plain-language RESULT.md
 - Enforces the point-by-point execution coverage rule (setup/execution
   points → evidence; gaps stated bluntly in RESULT + README)
-- Documents the live e2e loop: agent → background `tetra getevents`
+- Documents the live e2e loop: agent → background `ebpf-operator getevents`
   capture → policy add → docker workload → grep events file
 - Records CRS version support (1.45+ / 1.46+ / future release) per lab
 - Captures eBPF-Agent events JSON into RESULT.md, the README coverage
@@ -21,7 +21,7 @@ repo, and includes the full SKILL.md content below.
 ## Prerequisites (target machine)
 
 - Linux with root (`sudo`), docker, Go toolchain, and a built eBPF-Agent
-  agent + `tetra` CLI (repo base `release/v1.6-1-q5`)
+  agent + `ebpf-operator` CLI (repo base `release/v1.6-1-q5`)
 - BPF objects: `make ebpf-agent-bpf-local LOCAL_CLANG=1`
 - The `citi-hypothesis/` package (setup.sh, teardown.sh, TEMPLATE,
   tools/v1convert) — unpack `citi-hypothesis.tar.gz` inside the repo root
@@ -56,7 +56,7 @@ mkdir -p ~/.config/devin/skills/citi-hypothesis-labs
 ```bash
 tar xzf citi-hypothesis.tar.gz     # citi-hypothesis/ + .devin/skills/citi-hypothesis-labs/
 cd ebpf-agent
-sudo citi-hypothesis/setup.sh      # builds agent+tetra, starts agent + capture
+sudo citi-hypothesis/setup.sh      # builds agent+ebpf-operator, starts agent + capture
 ```
 
 `tools/v1convert` (legacy qualys.com/v1 → TracingPolicy converter) and
@@ -89,9 +89,9 @@ hypothesis, commands, observed output, verdict).
 
 - Base branch: `release/v1.6-1-q5` (`setup.sh` warns otherwise)
 - Bring up the lab environment once per session:
-  `sudo citi-hypothesis/setup.sh` — builds `ebpf-agent`+`tetra` with
+  `sudo citi-hypothesis/setup.sh` — builds `ebpf-agent`+`ebpf-operator` with
   `go build -mod=mod`, starts the agent on `:54321`, captures
-  `tetra getevents -o json` to `/tmp/citi-labs/events.jsonl`
+  `ebpf-operator getevents -o json` to `/tmp/citi-labs/events.jsonl`
 - Tear down with `sudo citi-hypothesis/teardown.sh`
 
 ## Per-hypothesis flow
@@ -105,16 +105,16 @@ hypothesis, commands, observed output, verdict).
    at least one action that generates the evidence** for it. If a point
    needs no new action (e.g. it is a platform observation), say so in the
    RESULT rather than skipping it silently.
-4. `./tetra tracingpolicy add <lab>/policy.yaml` — v2 is auto-translated to
+4. `./ebpf-operator tracingpolicy add <lab>/policy.yaml` — v2 is auto-translated to
    per-rule policies named `<policy>-v2-<rule-id>`.
 5. Drive the activity with `docker run`/`docker exec` (exact command goes
    into RESULT.md); `sleep ~5` for delivery.
 6. Inspect `/tmp/citi-labs/events.jsonl` — match `policy_name`,
    `process.binary`, `args[].file_arg.path`, `parent`, `docker` fields.
-   This is the E2E loop: agent → background `tetra getevents` capture →
+   This is the E2E loop: agent → background `ebpf-operator getevents` capture →
    policy apply → docker workload → grep the capture file for the events.
    A point is covered only when its evidence is IN THE FILE.
-7. `./tetra tracingpolicy delete <policy> --all-rules`; write RESULT.md in
+7. `./ebpf-operator tracingpolicy delete <policy> --all-rules`; write RESULT.md in
    plain, non-technical language (verdict up front).
 
 ## Execution-point coverage (mandatory, per lab)
@@ -169,7 +169,7 @@ hypothesis, commands, observed output, verdict).
 If a hypothesis needs a hook v2 can't express (other syscalls, LSM hooks,
 uprobes, tracepoints, custom args), ship `tracingpolicy.yaml`
 (`apiVersion: cilium.io/v1alpha1`, see `TEMPLATE/tracingpolicy.yaml`) —
-`tetra` applies it verbatim. Add a **"Future implementation"** section in
+`ebpf-operator` applies it verbatim. Add a **"Future implementation"** section in
 RESULT.md naming the v2 field that would be needed.
 
 ## Gotchas

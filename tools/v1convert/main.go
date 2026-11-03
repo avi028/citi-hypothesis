@@ -8,7 +8,7 @@
 //
 // Usage:
 //   go run ./citi-hypothesis/tools/v1convert < policy-v1.yaml > out-tp.yaml
-//   ./tetra tracingpolicy add out-tp.yaml
+//   ./ebpf-operator tracingpolicy add out-tp.yaml
 package main
 
 import (

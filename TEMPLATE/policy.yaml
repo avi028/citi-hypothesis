@@ -1,4 +1,4 @@
-# RuntimePolicy v2 — auto-translated by `tetra tracingpolicy add` into
+# RuntimePolicy v2 — auto-translated by `ebpf-operator tracingpolicy add` into
 # per-rule Cilium TracingPolicies named <policy>-v2-<rule-id>.
 #
 # Supported today (release/v1.6-1-q5):

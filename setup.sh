@@ -6,14 +6,14 @@
 #   1. checks prerequisites (root, docker, go, bpf objects)
 #   2. installs the citi-hypothesis-labs skill (from SKILL-INSTALL.md)
 #   3. warns if the repo is not on the supported base branch
-#   4. builds ./ebpf-agent and ./tetra (BUILD=0 to skip)
+#   4. builds ./ebpf-agent and ./ebpf-operator (BUILD=0 to skip)
 #   5. starts ebpf-agent with the local BPF objects (unless one is already up)
-#   6. starts a `tetra getevents` capture into $RUN_DIR/events.jsonl
+#   6. starts a `ebpf-operator getevents` capture into $RUN_DIR/events.jsonl
 #
 # Usage:
 #   sudo citi-hypothesis/setup.sh
 #
-# Environment overrides: BASE_BRANCH, RUN_DIR, BUILD, EBPF_AGENT, TETRA,
+# Environment overrides: BASE_BRANCH, RUN_DIR, BUILD, EBPF_AGENT, EBPF_OPERATOR,
 # BPF_LIB, EBPF_AGENT_ARGS (extra agent flags, e.g. --enable-ancestors).
 set -euo pipefail
 
@@ -24,7 +24,7 @@ BASE_BRANCH=${BASE_BRANCH:-release/v1.6-1-q5}
 RUN_DIR=${RUN_DIR:-/tmp/citi-labs}
 BUILD=${BUILD:-1}
 EBPF_AGENT=${EBPF_AGENT:-$ROOT/ebpf-agent}
-TETRA=${TETRA:-$ROOT/tetra}
+EBPF_OPERATOR=${EBPF_OPERATOR:-$ROOT/ebpf-operator}
 BPF_LIB=${BPF_LIB:-$ROOT/bpf/objs}
 EBPF_AGENT_ARGS=${EBPF_AGENT_ARGS:-}
 
@@ -62,12 +62,12 @@ fi
 
 # ── 4. build ─────────────────────────────────────────────────────────────────
 if [[ "$BUILD" == 1 ]]; then
-    say "building ebpf-agent + tetra (this can take a minute)"
+    say "building ebpf-agent + ebpf-operator (this can take a minute)"
     (cd "$ROOT" && go build -mod=mod -o ebpf-agent ./cmd/ebpf-agent/)
-    (cd "$ROOT" && go build -mod=mod -o tetra   ./cmd/tetra/)
+    (cd "$ROOT" && go build -mod=mod -o ebpf-operator   ./cmd/ebpf-operator/)
 fi
 [[ -x "$EBPF_AGENT" ]] || die "missing ebpf-agent binary: $EBPF_AGENT"
-[[ -x "$TETRA" ]]    || die "missing tetra binary: $TETRA"
+[[ -x "$EBPF_OPERATOR" ]]    || die "missing ebpf-operator binary: $EBPF_OPERATOR"
 [[ -d "$BPF_LIB" ]]  || die "missing BPF objects: $BPF_LIB (run: make ebpf-agent-bpf-local LOCAL_CLANG=1)"
 
 mkdir -p "$RUN_DIR"
@@ -88,14 +88,14 @@ else
 fi
 
 # ── 6. event capture ─────────────────────────────────────────────────────────
-if [[ -f "$RUN_DIR/tetra.pid" ]] && kill -0 "$(cat "$RUN_DIR/tetra.pid")" 2>/dev/null; then
+if [[ -f "$RUN_DIR/ebpf-operator.pid" ]] && kill -0 "$(cat "$RUN_DIR/ebpf-operator.pid")" 2>/dev/null; then
     say "event capture already running -> $RUN_DIR/events.jsonl"
 else
     : >"$RUN_DIR/events.jsonl"
-    "$TETRA" getevents -o json >>"$RUN_DIR/events.jsonl" 2>"$RUN_DIR/tetra.log" &
-    echo $! >"$RUN_DIR/tetra.pid"
+    "$EBPF_OPERATOR" getevents -o json >>"$RUN_DIR/events.jsonl" 2>"$RUN_DIR/ebpf-operator.log" &
+    echo $! >"$RUN_DIR/ebpf-operator.pid"
     sleep 2
-    kill -0 "$(cat "$RUN_DIR/tetra.pid")" 2>/dev/null || { cat "$RUN_DIR/tetra.log" >&2; die "tetra getevents failed"; }
+    kill -0 "$(cat "$RUN_DIR/ebpf-operator.pid")" 2>/dev/null || { cat "$RUN_DIR/ebpf-operator.log" >&2; die "ebpf-operator getevents failed"; }
 fi
 
 cat <<EOF
@@ -103,8 +103,8 @@ cat <<EOF
 [setup] READY. Run a lab:
 
   # apply its policy (RuntimePolicy v2 is translated automatically)
-  ./tetra tracingpolicy add citi-hypothesis/<LAB>/policy.yaml
-  ./tetra tracingpolicy list
+  ./ebpf-operator tracingpolicy add citi-hypothesis/<LAB>/policy.yaml
+  ./ebpf-operator tracingpolicy list
 
   # generate the activity (see the lab's RESULT.md for the docker command)
   docker run --rm debian:stable-slim sh -c '...'
@@ -113,7 +113,7 @@ cat <<EOF
   tail -f $RUN_DIR/events.jsonl | python3 -m json.tool
 
   # when done
-  ./tetra tracingpolicy delete <policy-name> --all-rules
+  ./ebpf-operator tracingpolicy delete <policy-name> --all-rules
   sudo citi-hypothesis/teardown.sh     # stops capture + ebpf-agent
 
 Events file : $RUN_DIR/events.jsonl

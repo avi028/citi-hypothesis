@@ -27,7 +27,7 @@ do, however, see reads inside mounted volumes.
 - **Policy 1 (raw Cilium TracingPolicy, `tracingpolicy.yaml`):** kprobe on
   `sys_mount` (`syscall: true`) capturing source, target, filesystem type,
   mount flags, and the return value (0 = success, negative errno = failure).
-  Applied verbatim with `./tetra tracingpolicy add` (v2 cannot express
+  Applied verbatim with `./ebpf-operator tracingpolicy add` (v2 cannot express
   syscall hooks — this is the documented fallback).
 - **Policy 2 (RuntimePolicy v2, `policy.yaml`):** report every file read
   or create under `/mnt/citi-h20/` (the volume mount target).
@@ -38,7 +38,7 @@ do, however, see reads inside mounted volumes.
   - C: `--cap-add SYS_ADMIN` in-container `mount -t tmpfs` (succeeds)
   - D: `--privileged` bind of host `/` into the container (succeeds)
   - E: host-side `mount -t tmpfs` (control)
-- **Events:** grabbed live with `tetra getevents -o json` (agent capture
+- **Events:** grabbed live with `ebpf-operator getevents -o json` (agent capture
   in `/tmp/citi-labs/events.jsonl`).
 
 ## What we observed
@@ -133,8 +133,8 @@ and kernel-level instrumentation confirms the calls happen.
 
 ```bash
 # 1. add the policies
-./tetra tracingpolicy add citi-hypothesis/QCS-H20-volume-mount-monitoring/tracingpolicy.yaml
-./tetra tracingpolicy add citi-hypothesis/QCS-H20-volume-mount-monitoring/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H20-volume-mount-monitoring/tracingpolicy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H20-volume-mount-monitoring/policy.yaml
 
 # 2. generate events
 mkdir -p /tmp/citi-h20-data && echo hostseed > /tmp/citi-h20-data/seed.txt
@@ -156,11 +156,11 @@ docker run --rm --privileged debian:stable-slim sh -c \
   'mkdir -p /mnt/host-root; mount --bind / /mnt/host-root && ls /mnt/host-root/etc/hostname >/dev/null; umount /mnt/host-root'
 
 # 3. grab the events (live capture already runs into /tmp/citi-labs/events.jsonl)
-./tetra getevents -o json
+./ebpf-operator getevents -o json
 # or, for the captured stream:
 tail -f /tmp/citi-labs/events.jsonl | python3 -m json.tool
 
 # 4. cleanup
-./tetra tracingpolicy delete citi-h20-volume-mount-monitoring --all-rules
+./ebpf-operator tracingpolicy delete citi-h20-volume-mount-monitoring --all-rules
 sudo citi-hypothesis/teardown.sh
 ```

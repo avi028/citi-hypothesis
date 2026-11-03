@@ -164,9 +164,9 @@ docker cp /tmp/memfd-exec citi-h04b:/tmp/memfd-exec
 
 # audit: apply tracingpolicy.yaml → memfd_create event +
 # process_exec with binary_properties.file.inode.links=0
-./tetra tracingpolicy add citi-hypothesis/QCS-H04-fileless-exec/tracingpolicy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H04-fileless-exec/tracingpolicy.yaml
 docker exec citi-h04b /tmp/memfd-exec        # prints CITI-H04-MEMFD-PAYLOAD-RAN
 
 # enforce: apply tracingpolicy-block.yaml instead
-./tetra tracingpolicy add citi-hypothesis/QCS-H04-fileless-exec/tracingpolicy-block.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H04-fileless-exec/tracingpolicy-block.yaml
 docker exec citi-h04b /tmp/memfd-exec        # rc=137, killed at memfd_create

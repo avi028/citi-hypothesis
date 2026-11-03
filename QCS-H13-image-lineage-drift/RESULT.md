@@ -85,7 +85,7 @@ never by the container, so it can't trigger FIM.
 ## docker run command used for the local proof
 
 ```bash
-./tetra tracingpolicy add citi-hypothesis/QCS-H13-image-lineage-drift/policy.yaml
+./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H13-image-lineage-drift/policy.yaml
 docker run --rm debian:stable-slim bash -c '
   mkdir -p /var/qualys-citi/h13
   echo baked-v1 > /var/qualys-citi/h13/baked.txt
