@@ -61,7 +61,7 @@ inventory) is a Qualys *platform* feature, not a runtime event.
 HYPOTHESIS-DETAILS annotation [Not supported]). Events carry no hash; the
 known sha256 (7ed7cf5c…32e3) appears nowhere in telemetry.
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h14-marker-v2-marker-open", "function_name": "security_file_open",

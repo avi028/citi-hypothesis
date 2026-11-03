@@ -1,15 +1,15 @@
 # citi-hypothesis labs
 
 Self-contained labs that prove (or disprove) Qualys runtime-detection
-hypotheses against a live Tetragon agent. Each lab ships a policy, a
+hypotheses against a live eBPF-Agent agent. Each lab ships a policy, a
 workload manifest, and a recorded result.
 
 **Base version: `release/v1.6-1-q5`** — all labs are verified on this
 branch. `setup.sh` warns if you run from a different branch.
 
 ```
-tar xzf citi-hypothesis.tar.gz        # unpack inside the tetragon repo root
-cd tetragon
+tar xzf citi-hypothesis.tar.gz        # unpack inside the ebpf-agent repo root
+cd ebpf-agent
 sudo citi-hypothesis/setup.sh         # checks env, builds, starts agent + capture
 ```
 
@@ -18,7 +18,7 @@ sudo citi-hypothesis/setup.sh         # checks env, builds, starts agent + captu
 - Linux host with root access (`sudo`)
 - docker
 - Go toolchain
-- Built BPF objects: `make tetragon-bpf-local LOCAL_CLANG=1` (once per
+- Built BPF objects: `make ebpf-agent-bpf-local LOCAL_CLANG=1` (once per
   checkout/kernel)
 
 ## E2E test loop (no cluster needed)
@@ -27,7 +27,7 @@ Every hypothesis is validated with this 5-stage loop — real agent, real
 kernel hooks, real workload, real events:
 
 ```
-stage 1  tetragon agent running            (setup.sh or manual, on :54321)
+stage 1  ebpf-agent agent running            (setup.sh or manual, on :54321)
 stage 2  tetra getevents -o json >> events.jsonl   (background capture)
 stage 3  ./tetra tracingpolicy add <lab>/policy.yaml
 stage 4  docker run/exec <workload>        (generates the activity)
@@ -42,7 +42,7 @@ cluster, no platform — the sensor path is exercised end-to-end.
 ## Quickstart
 
 ```bash
-sudo citi-hypothesis/setup.sh        # checks env, builds, starts tetragon + capture
+sudo citi-hypothesis/setup.sh        # checks env, builds, starts ebpf-agent + capture
 
 # run a lab
 ./tetra tracingpolicy add citi-hypothesis/QCS-H02-runtime-file-drift/policy.yaml
@@ -62,8 +62,8 @@ sudo citi-hypothesis/teardown.sh
 - `--enable-ancestors` — emit ancestor chain info on exec events (needed
   if a lab reads `ancestors` fields; raw `matchBinaries`/`followChildren`
   ancestor matching itself needs no flag).
-- Pass via `TETRAGON_ARGS` to setup.sh:
-  `TETRAGON_ARGS="--enable-process-cred" sudo citi-hypothesis/setup.sh`
+- Pass via `EBPF_AGENT_ARGS` to setup.sh:
+  `EBPF_AGENT_ARGS="--enable-process-cred" sudo citi-hypothesis/setup.sh`
 
 ## Lab anatomy
 
@@ -311,7 +311,7 @@ back with the same args (`--bpf-lib bpf/objs --export-filename
 Change done: H06 RESULT point table (S1–S5, E1–E5) + observed events;
 README matrix rows + not-covered row (S3).
 
-Tetragon events observed (policy `citi-h06-north-south` + `citi-h06-dns-audit`):
+eBPF-Agent events observed (policy `citi-h06-north-south` + `citi-h06-dns-audit`):
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h06-north-south-v2-egress-audit", "function_name": "tcp_connect",
@@ -332,7 +332,7 @@ Tetragon events observed (policy `citi-h06-north-south` + `citi-h06-dns-audit`):
 Change done: H05 RESULT point table (S1–S5, E1–E5) + observed events;
 README matrix rows added; policy updated to add the denied port 9090.
 
-Tetragon events observed (policy `citi-h05-east-west`, client `citi-client`):
+eBPF-Agent events observed (policy `citi-h05-east-west`, client `citi-client`):
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h05-east-west-v2-east-west-egress", "function_name": "tcp_connect",
@@ -355,7 +355,7 @@ Tetragon events observed (policy `citi-h05-east-west`, client `citi-client`):
 Change done: H04 RESULT.md gained the point-by-point table (E1–E5) +
 observed events (cases 1–3).
 
-Tetragon events observed (policy `citi-h04-fileless-exec`):
+eBPF-Agent events observed (policy `citi-h04-fileless-exec`):
 
 ```json
 // case 1 — inline `bash -c` (marker CITI-H04-inline): full argv visible
@@ -383,7 +383,7 @@ Tetragon events observed (policy `citi-h04-fileless-exec`):
 Change done: H03 RESULT.md gained the point-by-point table (E1–E5, per the
 skill rule) + observed events; README not-covered list updated (E5g).
 
-Tetragon events observed (policy `citi-h03-process-lineage`, marker `CITI-H03-5521`):
+eBPF-Agent events observed (policy `citi-h03-process-lineage`, marker `CITI-H03-5521`):
 
 ```json
 {"process_exec":   {"process": {"binary": "/usr/bin/sh", "arguments": "-c \"MARKER=CITI-H03-5521 …\"", "uid": 0, "docker": "c487a1d85fed"}}}
@@ -412,7 +412,7 @@ Change done:
   e2e session (writes `/tmp/e2e-check/export.jsonl`); restarted the lab
   capture (`tetra getevents -o json` → fresh `/tmp/citi-labs/events.jsonl`).
 
-H02 runtime file drift — Tetragon events observed (policy `citi-h02-file-drift`):
+H02 runtime file drift — eBPF-Agent events observed (policy `citi-h02-file-drift`):
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-create",   "function_name": "security_inode_create",  "process": {"binary": "/usr/bin/bash"}}}

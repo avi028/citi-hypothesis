@@ -62,7 +62,7 @@ searchable in argv — the full sequence reconstructs in order.
 
 **Not covered live:** none (the join is manual reconstruction, not a built-in sequence view).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_exec":   {"process": {"binary": "/usr/bin/bash"}}}

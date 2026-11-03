@@ -63,7 +63,7 @@ termination, and image blocklisting:
 
 **Not covered live:** E6 (platform response menu).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h16-probe-audit-v2-probe-exec-audit", "function_name": "security_bprm_check"}}

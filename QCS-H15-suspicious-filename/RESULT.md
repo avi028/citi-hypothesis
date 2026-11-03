@@ -63,7 +63,7 @@ operation, who did it".
 
 **Not covered live:** none.
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-create", "function_name": "security_inode_create", "process": {"binary": "/usr/bin/bash"}}}

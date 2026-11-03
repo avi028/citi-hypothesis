@@ -2,7 +2,7 @@
 
 ## What we wanted to prove
 
-Can a Tetragon/Cilium policy watch volume mounts — both the volumes a
+Can a eBPF-Agent/Cilium policy watch volume mounts — both the volumes a
 container receives when it starts (`docker run -v`) and mounts a process
 performs *inside* a running container — and report who did it, to what
 target, with what filesystem, and whether it succeeded?
@@ -60,11 +60,11 @@ the same way at the syscall level (retval = negative errno).
 - A **kernel-level** kprobe on `__x64_sys_mount` (tracefs, manual) fires
   for the in-container `mount` call — the syscall really does run through
   `__x64_sys_mount` inside the container.
-- The in-container mount process **is** present in Tetragon's execve map
+- The in-container mount process **is** present in eBPF-Agent's execve map
   (nonzero ktime), and its `process_exec`/`process_exit` records appear.
 - `sys_openat` and `vfs_read` kprobe events **do** get emitted for the
   same in-container process (the `mount` binary produced 8 openat events).
-- Therefore the drop is inside Tetragon's generic-kprobe/tracepoint path,
+- Therefore the drop is inside eBPF-Agent's generic-kprobe/tracepoint path,
   specific to syscall-hook events for processes inside running containers:
   `sys_mount` kprobe and `sys_enter_mount` tracepoint were both silent
   in-container; function kprobes (vfs_read, sys_openat) worked; a host

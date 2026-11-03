@@ -59,7 +59,7 @@ that never ran it.
 
 **Not covered live:** E1/E4-scan/E5-scan legs (platform).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h12-vuln-pkg-exec-v2-vuln-pkg-exec", "function_name": "security_bprm_check",

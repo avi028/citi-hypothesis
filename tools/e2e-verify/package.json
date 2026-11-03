@@ -1,0 +1,15 @@
+{
+  "name": "citi-e2e-verify",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "E2E verification: run a lab command over SSH, screenshot the Qualys console before/after, emit highlighted pixel diffs.",
+  "scripts": {
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "pixelmatch": "^6.0.0",
+    "playwright": "^1.48.0",
+    "pngjs": "^7.0.0"
+  }
+}

@@ -63,7 +63,7 @@ are not part of `tcp_connect` telemetry.
 **Not covered live:** S3 (OpenShift egress controls). See README
 "Execution points not covered".
 
-## Tetragon events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-03 quick run)
 
 ```json
 // egress (policy citi-h06-north-south) — one per connection, all identical shape

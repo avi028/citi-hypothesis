@@ -2133,7 +2133,7 @@ spec:
 # QCS-H12 — Vulnerable Image "In Use" Prioritization
 #
 # The REGISTRY-SCAN leg (vuln discovery, CVSS, fix versions) is a Qualys
-# platform capability — not a Tetragon runtime event. What the runtime
+# platform capability — not a eBPF-Agent runtime event. What the runtime
 # sensor CAN prove is the "in use" half: which workload actually EXECUTED
 # the vulnerable binary. This policy flags exec of the target package, so
 # image A (invokes it) generates events and image B (package present, not
@@ -2288,7 +2288,7 @@ spec:
 # QCS-H13 — Image Lineage vs Runtime Integrity Change
 #
 # IMAGE side (digest, layers, build history, diff between v1 and v2) is a
-# Qualys platform/registry capability — Tetragon events carry no layer
+# Qualys platform/registry capability — eBPF-Agent events carry no layer
 # data. RUNTIME side: this FIM rule records every create/write under the
 # writable dir after deployment, i.e. drift that is BY DEFINITION not part
 # of the image. Joining the two (which events have no matching layer) is
@@ -3297,7 +3297,7 @@ Converted + load-verified (`file-open` on the health binary).
 
 ### QCS-H20 — Volume Mount Monitoring in Containers
 
-**Hypothesis.** A Cilium/Tetragon policy can watch volume mounts — both
+**Hypothesis.** A Cilium/eBPF-Agent policy can watch volume mounts — both
 the volumes a container receives at start (`docker run -v`) and mounts a
 process performs inside a running container — and report who did it, to
 what target, with what filesystem, and whether it succeeded.
@@ -3432,7 +3432,7 @@ spec:
 Chase notes: kernel-level kprobe on `__x64_sys_mount` fires for the
 in-container call; the process is in the execve map (nonzero ktime);
 `sys_openat` + `vfs_read` events from the same process are emitted — so the
-drop is in Tetragon's generic-kprobe/tracepoint path for processes in
+drop is in eBPF-Agent's generic-kprobe/tracepoint path for processes in
 container cgroups. `unshare -m` (fresh mount namespace, host cgroup) fires
 fine, so the discriminator is the container cgroup, not the namespace.
 Docker container-id fields are empty in this environment.

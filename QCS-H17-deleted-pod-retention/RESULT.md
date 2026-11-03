@@ -59,7 +59,7 @@ not delete evidence with the pod.
 
 **Not covered live:** none (retention *window* = platform setting, e.g. 7 days).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 // after the container was deleted — events remain searchable

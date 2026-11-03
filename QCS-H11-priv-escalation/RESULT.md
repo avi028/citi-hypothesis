@@ -73,7 +73,7 @@ via raw TracingPolicy).
 fields on exec events require `--enable-process-cred` (verified Oct 30 with
 the flag; current agent runs without it).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h11-priv-escalation-v2-elevated-exec", "function_name": "security_bprm_check",

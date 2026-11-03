@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# citi-hypothesis lab setup — prepares a live tetragon environment on the
+# citi-hypothesis lab setup — prepares a live ebpf-agent environment on the
 # supported base branch so any lab under citi-hypothesis/ can be run.
 #
 # What it does:
 #   1. checks prerequisites (root, docker, go, bpf objects)
 #   2. installs the citi-hypothesis-labs skill (from SKILL-INSTALL.md)
 #   3. warns if the repo is not on the supported base branch
-#   4. builds ./tetragon and ./tetra (BUILD=0 to skip)
-#   5. starts tetragon with the local BPF objects (unless one is already up)
+#   4. builds ./ebpf-agent and ./tetra (BUILD=0 to skip)
+#   5. starts ebpf-agent with the local BPF objects (unless one is already up)
 #   6. starts a `tetra getevents` capture into $RUN_DIR/events.jsonl
 #
 # Usage:
 #   sudo citi-hypothesis/setup.sh
 #
-# Environment overrides: BASE_BRANCH, RUN_DIR, BUILD, TETRAGON, TETRA,
-# BPF_LIB, TETRAGON_ARGS (extra agent flags, e.g. --enable-ancestors).
+# Environment overrides: BASE_BRANCH, RUN_DIR, BUILD, EBPF_AGENT, TETRA,
+# BPF_LIB, EBPF_AGENT_ARGS (extra agent flags, e.g. --enable-ancestors).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -23,10 +23,10 @@ ROOT=$(cd "$HERE/.." && pwd)
 BASE_BRANCH=${BASE_BRANCH:-release/v1.6-1-q5}
 RUN_DIR=${RUN_DIR:-/tmp/citi-labs}
 BUILD=${BUILD:-1}
-TETRAGON=${TETRAGON:-$ROOT/tetragon}
+EBPF_AGENT=${EBPF_AGENT:-$ROOT/ebpf-agent}
 TETRA=${TETRA:-$ROOT/tetra}
 BPF_LIB=${BPF_LIB:-$ROOT/bpf/objs}
-TETRAGON_ARGS=${TETRAGON_ARGS:-}
+EBPF_AGENT_ARGS=${EBPF_AGENT_ARGS:-}
 
 say() { echo "[setup] $*"; }
 die() { echo "[setup] FAIL: $*" >&2; exit 1; }
@@ -62,29 +62,29 @@ fi
 
 # ── 4. build ─────────────────────────────────────────────────────────────────
 if [[ "$BUILD" == 1 ]]; then
-    say "building tetragon + tetra (this can take a minute)"
-    (cd "$ROOT" && go build -mod=mod -o tetragon ./cmd/tetragon/)
+    say "building ebpf-agent + tetra (this can take a minute)"
+    (cd "$ROOT" && go build -mod=mod -o ebpf-agent ./cmd/ebpf-agent/)
     (cd "$ROOT" && go build -mod=mod -o tetra   ./cmd/tetra/)
 fi
-[[ -x "$TETRAGON" ]] || die "missing tetragon binary: $TETRAGON"
+[[ -x "$EBPF_AGENT" ]] || die "missing ebpf-agent binary: $EBPF_AGENT"
 [[ -x "$TETRA" ]]    || die "missing tetra binary: $TETRA"
-[[ -d "$BPF_LIB" ]]  || die "missing BPF objects: $BPF_LIB (run: make tetragon-bpf-local LOCAL_CLANG=1)"
+[[ -d "$BPF_LIB" ]]  || die "missing BPF objects: $BPF_LIB (run: make ebpf-agent-bpf-local LOCAL_CLANG=1)"
 
 mkdir -p "$RUN_DIR"
 
-# ── 5. tetragon agent ────────────────────────────────────────────────────────
+# ── 5. ebpf-agent agent ────────────────────────────────────────────────────────
 if (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null; then
-    say "tetragon gRPC already listening on 127.0.0.1:54321 — reusing it"
+    say "ebpf-agent gRPC already listening on 127.0.0.1:54321 — reusing it"
 else
-    say "starting tetragon (log: $RUN_DIR/tetragon.log)"
+    say "starting ebpf-agent (log: $RUN_DIR/ebpf-agent.log)"
     # shellcheck disable=SC2086
-    "$TETRAGON" --bpf-lib "$BPF_LIB" $TETRAGON_ARGS >"$RUN_DIR/tetragon.log" 2>&1 &
-    echo $! >"$RUN_DIR/tetragon.pid"
+    "$EBPF_AGENT" --bpf-lib "$BPF_LIB" $EBPF_AGENT_ARGS >"$RUN_DIR/ebpf-agent.log" 2>&1 &
+    echo $! >"$RUN_DIR/ebpf-agent.pid"
     for _ in $(seq 1 60); do
         (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null && break
         sleep 1
     done
-    (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null || { cat "$RUN_DIR/tetragon.log" >&2; die "tetragon did not start"; }
+    (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null || { cat "$RUN_DIR/ebpf-agent.log" >&2; die "ebpf-agent did not start"; }
 fi
 
 # ── 6. event capture ─────────────────────────────────────────────────────────
@@ -114,8 +114,8 @@ cat <<EOF
 
   # when done
   ./tetra tracingpolicy delete <policy-name> --all-rules
-  sudo citi-hypothesis/teardown.sh     # stops capture + tetragon
+  sudo citi-hypothesis/teardown.sh     # stops capture + ebpf-agent
 
 Events file : $RUN_DIR/events.jsonl
-Agent log   : $RUN_DIR/tetragon.log
+Agent log   : $RUN_DIR/ebpf-agent.log
 EOF

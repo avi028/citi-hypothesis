@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tears down a citi-hypothesis lab run started by setup.sh:
 # stops the event capture, removes all loaded tracing policies, and stops
-# the tetragon agent it launched.
+# the ebpf-agent agent it launched.
 #
 # Usage: sudo citi-hypothesis/teardown.sh
 set -euo pipefail
@@ -29,10 +29,10 @@ if (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null; then
 fi
 
 # stop the agent we started
-if [[ -f "$RUN_DIR/tetragon.pid" ]]; then
-    kill "$(cat "$RUN_DIR/tetragon.pid")" 2>/dev/null || true
-    rm -f "$RUN_DIR/tetragon.pid"
-    say "stopped tetragon"
+if [[ -f "$RUN_DIR/ebpf-agent.pid" ]]; then
+    kill "$(cat "$RUN_DIR/ebpf-agent.pid")" 2>/dev/null || true
+    rm -f "$RUN_DIR/ebpf-agent.pid"
+    say "stopped ebpf-agent"
 fi
 
 say "done — artifacts kept in $RUN_DIR"

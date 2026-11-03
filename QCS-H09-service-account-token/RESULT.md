@@ -67,7 +67,7 @@ in the cluster's API audit log.
 caught minikube's `storage-provisioner` pod reading its own SA token — the
 policy works on genuine in-cluster token access.
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h09-sa-token-v2-sa-token-read", "function_name": "security_file_open",

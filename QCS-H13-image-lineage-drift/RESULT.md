@@ -63,7 +63,7 @@ never by the container, so it can't trigger FIM.
 
 **Not covered live:** E1/E2/E4 (image side — platform).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h13-drift-v2-drift-create", "function_name": "security_inode_create", "process": {"binary": "/usr/bin/bash"}}}

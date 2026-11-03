@@ -58,7 +58,7 @@ erase it.
 
 **Not covered live:** S2/S5 (real NetworkPolicy + OpenShift logs — cluster/platform).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h07-netpol-denied-v2-egress-audit", "function_name": "tcp_connect",

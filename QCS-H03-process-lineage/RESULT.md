@@ -75,7 +75,7 @@ child.
 
 **Not covered live:** none — all points verified (E5g under k8s).
 
-## Tetragon events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-03 quick run)
 
 ```json
 {"process_exec":   {"process": {"binary": "/usr/bin/sh", "arguments": "-c \"MARKER=CITI-H03-5521 …\"", "uid": 0, "docker": "c487a1d85fed"}}}

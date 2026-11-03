@@ -1,7 +1,7 @@
 # QCS-H13 — Image Lineage vs Runtime Integrity Change
 #
 # IMAGE side (digest, layers, build history, diff between v1 and v2) is a
-# Qualys platform/registry capability — Tetragon events carry no layer
+# Qualys platform/registry capability — eBPF-Agent events carry no layer
 # data. RUNTIME side: this FIM rule records every create/write under the
 # writable dir after deployment, i.e. drift that is BY DEFINITION not part
 # of the image. Joining the two (which events have no matching layer) is

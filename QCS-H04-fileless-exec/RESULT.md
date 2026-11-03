@@ -101,7 +101,7 @@ files would fix the block-by-path gap.
 **Not covered live:** none — all points verified (stdin script body is
 invisible by design, recorded in E2/E4).
 
-## Tetragon events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-03 quick run)
 
 ```json
 // case 1 — inline `bash -c` (marker CITI-H04-inline)

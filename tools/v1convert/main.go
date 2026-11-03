@@ -1,7 +1,7 @@
 // v1convert — converts qualys.com/v1 RuntimePolicy YAML into the Cilium
 // TracingPolicy YAML that the operator would send to the agent.
 //
-// This mirrors PolicyReconciler.convertCRDPolicyToTetragonPolicy: it parses
+// This mirrors PolicyReconciler.convertCRDPolicyToEBPFAgentPolicy: it parses
 // each v1 document, validates the spec the same way, then calls the exact
 // Create*Policy builders used by the real reconcile path — so the output
 // is byte-for-byte what the agent would receive in a cluster.
@@ -18,9 +18,9 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	ciliumv1alpha1 "github.com/cilium/tetragon/pkg/k8s/apis/cilium.io/v1alpha1"
-	policyV1 "github.com/cilium/tetragon/pkg/operator/api/v1"
-	"github.com/cilium/tetragon/pkg/operator/controllers"
+	ciliumv1alpha1 "github.com/cilium/ebpf-agent/pkg/k8s/apis/cilium.io/v1alpha1"
+	policyV1 "github.com/cilium/ebpf-agent/pkg/operator/api/v1"
+	"github.com/cilium/ebpf-agent/pkg/operator/controllers"
 )
 
 // convert mirrors validateCRDPolicy + the base-policy switch in

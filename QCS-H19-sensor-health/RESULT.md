@@ -17,7 +17,7 @@ platform's sensor-profile view of exactly this cycle.
 
 1. Baseline: policy on a health-probe binary (`/usr/bin/true`), probe exec
    → 1 policy event
-2. Interrupt: killed the tetragon agent (simulating the approved sensor
+2. Interrupt: killed the ebpf-agent agent (simulating the approved sensor
    interruption on a node)
 3. Probe exec during outage → **0 new events** (the gap)
 4. Recovery: agent restarted with the same flags, policy re-applied
@@ -63,7 +63,7 @@ platform's sensor-profile view of exactly this cycle.
 
 **Not covered live:** none (the *reporting* view is platform; the sensor behavior is proven).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 // baseline: 1 h19 event → outage: 0 new → recovery: 1 new (total 2)
@@ -86,7 +86,7 @@ platform's sensor-profile view of exactly this cycle.
 ```bash
 ./tetra tracingpolicy add citi-hypothesis/QCS-H19-sensor-health/policy.yaml
 docker run --rm debian:stable-slim /usr/bin/true        # baseline → event
-kill $(pgrep -x tetragon)                                # interruption
+kill $(pgrep -x ebpf-agent)                                # interruption
 docker run --rm debian:stable-slim /usr/bin/true        # outage → NO event
 # restart agent with the same flags (--enable-process-cred), re-add policy,
 # restart the capture

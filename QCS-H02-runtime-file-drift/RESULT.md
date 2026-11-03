@@ -70,7 +70,7 @@ Nothing was missed; even the delete leaves a searchable record.
 
 **Not covered live:** none — all points verified.
 
-## Tetragon events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-03 quick run)
 
 ```json
 // audit (policy citi-h02-file-drift)

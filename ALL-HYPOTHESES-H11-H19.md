@@ -256,7 +256,7 @@ spec:
 # QCS-H12 — Vulnerable Image "In Use" Prioritization
 #
 # The REGISTRY-SCAN leg (vuln discovery, CVSS, fix versions) is a Qualys
-# platform capability — not a Tetragon runtime event. What the runtime
+# platform capability — not a eBPF-Agent runtime event. What the runtime
 # sensor CAN prove is the "in use" half: which workload actually EXECUTED
 # the vulnerable binary. This policy flags exec of the target package, so
 # image A (invokes it) generates events and image B (package present, not
@@ -411,7 +411,7 @@ spec:
 # QCS-H13 — Image Lineage vs Runtime Integrity Change
 #
 # IMAGE side (digest, layers, build history, diff between v1 and v2) is a
-# Qualys platform/registry capability — Tetragon events carry no layer
+# Qualys platform/registry capability — eBPF-Agent events carry no layer
 # data. RUNTIME side: this FIM rule records every create/write under the
 # writable dir after deployment, i.e. drift that is BY DEFINITION not part
 # of the image. Joining the two (which events have no matching layer) is

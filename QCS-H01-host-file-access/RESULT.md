@@ -58,7 +58,7 @@ suffix should be relaxed to just the filename.
 **Not covered live:** E1 (restricted-v2 pod denial — cluster), E2 (elevated
 pod apply — cluster). See README "Execution points not covered".
 
-## Tetragon events observed
+## eBPF-Agent events observed
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h01-host-file-access-v2-host-file-read", "function_name": "vfs_read",

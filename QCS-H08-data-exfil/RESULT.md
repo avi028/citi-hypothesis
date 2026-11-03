@@ -61,7 +61,7 @@ uploaded bytes. Qualys attributes the transfer without exposing the data.
 
 **Not covered live:** DNS leg (add ip_output raw TP if required).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h08-data-exfil-v2-payload-open", "function_name": "security_file_open",

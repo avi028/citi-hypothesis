@@ -66,7 +66,7 @@ comparison). See README "Execution points not covered".
   no working containerSelector — scope by `podSelector` or accept the
   noise; this is a real deployment consideration.
 
-## Tetragon events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-03 quick run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h05-east-west-v2-east-west-egress", "function_name": "tcp_connect",

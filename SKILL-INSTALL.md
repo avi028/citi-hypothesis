@@ -15,14 +15,14 @@ repo, and includes the full SKILL.md content below.
 - Documents the live e2e loop: agent → background `tetra getevents`
   capture → policy add → docker workload → grep events file
 - Records CRS version support (1.45+ / 1.46+ / future release) per lab
-- Captures Tetragon events JSON into RESULT.md, the README coverage
+- Captures eBPF-Agent events JSON into RESULT.md, the README coverage
   matrix, and the run log
 
 ## Prerequisites (target machine)
 
-- Linux with root (`sudo`), docker, Go toolchain, and a built Tetragon
+- Linux with root (`sudo`), docker, Go toolchain, and a built eBPF-Agent
   agent + `tetra` CLI (repo base `release/v1.6-1-q5`)
-- BPF objects: `make tetragon-bpf-local LOCAL_CLANG=1`
+- BPF objects: `make ebpf-agent-bpf-local LOCAL_CLANG=1`
 - The `citi-hypothesis/` package (setup.sh, teardown.sh, TEMPLATE,
   tools/v1convert) — unpack `citi-hypothesis.tar.gz` inside the repo root
 
@@ -55,7 +55,7 @@ mkdir -p ~/.config/devin/skills/citi-hypothesis-labs
 
 ```bash
 tar xzf citi-hypothesis.tar.gz     # citi-hypothesis/ + .devin/skills/citi-hypothesis-labs/
-cd tetragon
+cd ebpf-agent
 sudo citi-hypothesis/setup.sh      # builds agent+tetra, starts agent + capture
 ```
 
@@ -89,7 +89,7 @@ hypothesis, commands, observed output, verdict).
 
 - Base branch: `release/v1.6-1-q5` (`setup.sh` warns otherwise)
 - Bring up the lab environment once per session:
-  `sudo citi-hypothesis/setup.sh` — builds `tetragon`+`tetra` with
+  `sudo citi-hypothesis/setup.sh` — builds `ebpf-agent`+`tetra` with
   `go build -mod=mod`, starts the agent on `:54321`, captures
   `tetra getevents -o json` to `/tmp/citi-labs/events.jsonl`
 - Tear down with `sudo citi-hypothesis/teardown.sh`
@@ -186,7 +186,7 @@ RESULT.md naming the v2 field that would be needed.
   shows `docker` container id only.
 - `action: block` = SIGKILL the process (exit 137), not a clean denial.
 - `binary_properties` (setuid/caps/memfd+deleted execs) needs
-  `--enable-process-cred`; pass `TETRAGON_ARGS="--enable-process-cred"`
+  `--enable-process-cred`; pass `EBPF_AGENT_ARGS="--enable-process-cred"`
   to setup.sh. memfd execs can't be blocked via `matchBinaries` paths —
   Sigkill `sys_memfd_create` instead (QCS-H04).
 - `tcp_connect` fires at SYN-send: refused/dropped connects look identical

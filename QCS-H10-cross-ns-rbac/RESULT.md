@@ -73,7 +73,7 @@ the connection; the audit log proves the identity and the denial.
 
 **Not covered live:** E3/E5 (audit logs).
 
-## Tetragon events observed (2026-11-03 run)
+## eBPF-Agent events observed (2026-11-03 run)
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h10-cross-ns-v2-sa-token-read", "function_name": "security_file_open",
