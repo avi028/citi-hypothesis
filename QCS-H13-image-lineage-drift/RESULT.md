@@ -51,6 +51,28 @@ never by the container, so it can't trigger FIM.
 - Pod/image-digest association requires k8s/OpenShift (plain docker shows
   container id only).
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Scan + deploy image v1 | **NOT COVERED live** | scan = platform; docker stands in for the pod |
+| E2 | Replace with image v2 | **NOT COVERED live** | image build/swap is platform/cluster |
+| E3 | Introduce runtime file change post-deploy | **YES** | create/write/open under `/var/qualys-citi/h13` all recorded |
+| E4 | Compare build history / digest / metadata / container / drift | **Partial** | drift events carry path+process+container; digest/layer data = platform |
+| E5 | Layer changes vs runtime changes distinguishable | **YES PARTIAL** | every FIM event IS runtime (image layers are immutable and never trigger FIM) — join with scan data for the full diff |
+
+**Not covered live:** E1/E2/E4 (image side — platform).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h13-drift-v2-drift-create", "function_name": "security_inode_create", "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h13-drift-v2-drift-write", "function_name": "vfs_write",
+ "process": {"binary": "/usr/bin/bash"}, "args": [{"file_arg": {"path": "/var/qualys-citi/h13/runtime.txt"}}]}}
+{"process_kprobe": {"policy_name": "citi-h13-drift-v2-drift-open", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/cat"}, "args": [{"file_arg": {"path": "/var/qualys-citi/h13/baked.txt"}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

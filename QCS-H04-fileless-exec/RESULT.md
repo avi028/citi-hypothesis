@@ -88,6 +88,36 @@ For memfd: a future v2 `fileless`/`memfd` rule type could wrap the
 needed. A `matchBinaries` extension that recognizes memory-backed bprm
 files would fix the block-by-path gap.
 
+## Point-by-point check (original hypothesis)
+
+| # | Execution point | Status | Evidence |
+|---|---|---|---|
+| E1 | Inline shell via `bash -c` | **YES** (live) | `process_exec /usr/bin/bash` — argv carries the **full inline script** |
+| E2 | Script via standard input | **YES** (live) | `process_exec /usr/bin/bash` argv=`-` — script body **not** visible |
+| E3 | Process, file-read, and network events from the inline script | **YES** (live) | child `cat` → `security_file_open` on the canary; `tcp_connect` egress → :8080, same container |
+| E4 | Interpreter, full command line, children, associated activity | **YES PARTIAL (file open)** | interpreter ✓; cmdline ✓ for `-c`, ✗ for stdin; children + file-open + network activity ✓ — matches the annotation |
+| E5 | Compare with file-based script scenario | **YES** (live) | file-based exec shows binary = `/tmp/citi-h04-file.sh` (script name visible); inline/stdin show only the interpreter |
+
+**Not covered live:** none — all points verified (stdin script body is
+invisible by design, recorded in E2/E4).
+
+## Tetragon events observed (2026-11-03 quick run)
+
+```json
+// case 1 — inline `bash -c` (marker CITI-H04-inline)
+{"process_exec":   {"process": {"binary": "/usr/bin/bash", "arguments": "-c \"echo CITI-H04-inline; cat /etc/citi-h04-canary.txt; exec 3<>/dev/tcp/172.17.0.1/8080\""}}}
+{"process_kprobe": {"policy_name": "citi-h04-fileless-exec-v2-canary-open", "function_name": "security_file_open", "process": {"binary": "/usr/bin/cat"}}}
+{"process_kprobe": {"policy_name": "citi-h04-fileless-exec-v2-egress-audit", "function_name": "tcp_connect", "process": {"binary": "/usr/bin/bash"}}}
+
+// case 2 — stdin-fed script (marker CITI-H04-stdin): NO arguments
+{"process_exec":   {"process": {"binary": "/usr/bin/bash", "arguments": "-"}}}
+{"process_kprobe": {"policy_name": "citi-h04-fileless-exec-v2-canary-open", "function_name": "security_file_open", "process": {"binary": "/usr/bin/cat"}}}
+{"process_kprobe": {"policy_name": "citi-h04-fileless-exec-v2-egress-audit", "function_name": "tcp_connect", "process": {"binary": "/usr/bin/bash"}}}
+
+// case 3 — file-based script: binary IS the script path
+{"process_exec":   {"process": {"binary": "/tmp/citi-h04-file.sh", "arguments": "/tmp/citi-h04-file.sh"}}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

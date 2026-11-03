@@ -55,6 +55,36 @@ Nothing was missed; even the delete leaves a searchable record.
 - The audit policy and the enforce policy are separate RuntimePolicy
   files; on OpenShift you'd apply audit first, then switch to enforce.
 
+## Point-by-point check (original hypothesis)
+
+| # | Execution point | Status | Evidence |
+|---|---|---|---|
+| E1a | File create under monitored dir | **YES** (live) | `security_inode_create` (`bash`) |
+| E1b | File write | **YES** (live) | `vfs_write` (`bash`) |
+| E1c | Metadata change (chmod) | **YES** (live) | `security_path_chmod` (`chmod`) |
+| E1d | Rename | **YES** (live) | `security_path_rename` (`mv`) |
+| E1e | Delete | **YES** (live) | `security_path_unlink` (`rm`) |
+| E2 | Enforce: kill the writer on block-dir write | **YES** (live) | `KPROBE_ACTION_SIGKILL` at `vfs_write`, container exit 137 |
+| E3 | Enforce: block exec of the dropped script | **YES** (live) | `KPROBE_ACTION_SIGKILL` at `security_bprm_check`, script rc=137, container stable |
+| E4 | Attribution (process, cmdline, UID, container, node, time) | **YES** (live) | `process.binary`, `arguments`, `uid`, `docker`, `node_name`, `time` on every event; pod/ns fields verified in cluster runs |
+
+**Not covered live:** none — all points verified.
+
+## Tetragon events observed (2026-11-03 quick run)
+
+```json
+// audit (policy citi-h02-file-drift)
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-create",   "function_name": "security_inode_create",  "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-write",    "function_name": "vfs_write",             "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-metadata", "function_name": "security_path_chmod",   "process": {"binary": "/usr/bin/chmod"}}}
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-rename",   "function_name": "security_path_rename", "process": {"binary": "/usr/bin/mv"}}}
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-delete",   "function_name": "security_path_unlink", "process": {"binary": "/usr/bin/rm"}}}
+
+// enforce (policy citi-h02-file-drift-enforce, action: block)
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-enforce-v2-drift-block-write", "function_name": "vfs_write",            "process": {"binary": "/usr/bin/bash"}, "action": "KPROBE_ACTION_SIGKILL"}}
+{"process_kprobe": {"policy_name": "citi-h02-file-drift-enforce-v2-drift-block-exec",  "function_name": "security_bprm_check", "process": {"binary": "/usr/bin/bash"}, "action": "KPROBE_ACTION_SIGKILL"}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

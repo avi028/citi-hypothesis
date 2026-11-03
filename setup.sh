@@ -4,10 +4,11 @@
 #
 # What it does:
 #   1. checks prerequisites (root, docker, go, bpf objects)
-#   2. warns if the repo is not on the supported base branch
-#   3. builds ./tetragon and ./tetra (BUILD=0 to skip)
-#   4. starts tetragon with the local BPF objects (unless one is already up)
-#   5. starts a `tetra getevents` capture into $RUN_DIR/events.jsonl
+#   2. installs the citi-hypothesis-labs skill (from SKILL-INSTALL.md)
+#   3. warns if the repo is not on the supported base branch
+#   4. builds ./tetragon and ./tetra (BUILD=0 to skip)
+#   5. starts tetragon with the local BPF objects (unless one is already up)
+#   6. starts a `tetra getevents` capture into $RUN_DIR/events.jsonl
 #
 # Usage:
 #   sudo citi-hypothesis/setup.sh
@@ -37,14 +38,29 @@ docker ps >/dev/null 2>&1   || die "docker daemon not accessible"
 command -v go >/dev/null    || die "go toolchain is required"
 command -v python3 >/dev/null || die "python3 is required"
 
-# ── 2. base branch ───────────────────────────────────────────────────────────
+# ── 2. install the citi-hypothesis-labs skill ─────────────────────────────────
+# The skill lives self-contained inside SKILL-INSTALL.md (between the
+# "## Full SKILL.md content" marker and the closing fence). Extract it to
+# the project skills dir so any agent session can use it — idempotent.
+SKILL_INSTALL="$HERE/SKILL-INSTALL.md"
+SKILL_DEST="$ROOT/.devin/skills/citi-hypothesis-labs/SKILL.md"
+if [[ -f "$SKILL_INSTALL" ]]; then
+    mkdir -p "$(dirname "$SKILL_DEST")"
+    python3 -c 'import re,sys;t=open(sys.argv[1]).read();m=re.search(r"## Full SKILL.md content\n\n```markdown\n(.*?)\n```",t,re.S);open(sys.argv[2],"w").write(m.group(1)+"\n")' \
+        "$SKILL_INSTALL" "$SKILL_DEST" \
+        && say "skill installed -> $SKILL_DEST"
+else
+    say "SKILL-INSTALL.md not found — skipping skill install"
+fi
+
+# ── 3. base branch ───────────────────────────────────────────────────────────
 branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || true)
 if [[ "$branch" != "$BASE_BRANCH" ]]; then
     say "WARNING: repo is on '$branch', labs are verified on '$BASE_BRANCH'."
     say "         Results may differ — 'git checkout $BASE_BRANCH' recommended."
 fi
 
-# ── 3. build ─────────────────────────────────────────────────────────────────
+# ── 4. build ─────────────────────────────────────────────────────────────────
 if [[ "$BUILD" == 1 ]]; then
     say "building tetragon + tetra (this can take a minute)"
     (cd "$ROOT" && go build -mod=mod -o tetragon ./cmd/tetragon/)
@@ -56,7 +72,7 @@ fi
 
 mkdir -p "$RUN_DIR"
 
-# ── 4. tetragon agent ────────────────────────────────────────────────────────
+# ── 5. tetragon agent ────────────────────────────────────────────────────────
 if (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null; then
     say "tetragon gRPC already listening on 127.0.0.1:54321 — reusing it"
 else
@@ -71,7 +87,7 @@ else
     (: >/dev/tcp/127.0.0.1/54321) 2>/dev/null || { cat "$RUN_DIR/tetragon.log" >&2; die "tetragon did not start"; }
 fi
 
-# ── 5. event capture ─────────────────────────────────────────────────────────
+# ── 6. event capture ─────────────────────────────────────────────────────────
 if [[ -f "$RUN_DIR/tetra.pid" ]] && kill -0 "$(cat "$RUN_DIR/tetra.pid")" 2>/dev/null; then
     say "event capture already running -> $RUN_DIR/events.jsonl"
 else

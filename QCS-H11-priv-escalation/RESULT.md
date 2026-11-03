@@ -57,6 +57,31 @@ CAP_SYS_ADMIN, and never on the normal control**.
 A v2 `matchCapabilities`/`matchCapabilityChanges` rule field (today only
 via raw TracingPolicy).
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Submit each risky config separately | manifests | `pod.yaml` (restricted control + SYS_ADMIN/root elevated) |
+| E2 | Record whether OpenShift admits/rejects | **NOT COVERED live** | admission is platform/SCC data |
+| E3 | Harmless identity/process checks on admitted pods | **YES** | `id` runs in both containers |
+| E4 | Risky config + runtime context identified | **YES** | v2 rule flags the execs; raw cap-change TP fires on cap transitions at exec |
+| E5 | Distinguish admission vs runtime findings | **YES** (blunt) | admission = OpenShift/SCC (platform); runtime = the exec events — two different systems |
+
+**Blunt caveat:** the raw `matchCapabilityChanges` TP fires on cap *transitions*
+(gain AND loss — e.g. runc container-init transitions), so it is NOT a precise
+"this exec gained CAP_SYS_ADMIN" filter in this environment; `process.cap`
+fields on exec events require `--enable-process-cred` (verified Oct 30 with
+the flag; current agent runs without it).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h11-priv-escalation-v2-elevated-exec", "function_name": "security_bprm_check",
+ "process": {"binary": "/usr/lib/systemd/systemd"}, "args": [{"linux_binprm_arg": {"path": "/usr/bin/id"}}]}}
+{"process_kprobe": {"policy_name": "citi-h11-cap-change", "function_name": "security_bprm_check",
+ "process": {"binary": "/usr/lib/systemd/systemd"}, "args": [{"linux_binprm_arg": {"path": "/ (deleted)"}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

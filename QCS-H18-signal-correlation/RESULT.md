@@ -49,6 +49,30 @@ searchable in argv — the full sequence reconstructs in order.
 - v1 cannot express the process-exec leg (script launch marker only via
   file-open).
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Create a runtime script | **YES** | `payload-open` by bash (script/payload creation) |
+| E2 | Execute via parent shell | **YES** | `chain-exec` bprm event |
+| E3 | Read a synthetic file | **YES** | `payload-open` by `cat` |
+| E4 | Resolve an internal hostname (DNS) | **YES** | 8 `ip_output` UDP :53 datagrams (`getent`) |
+| E5 | Connect + upload to controlled endpoint | **YES** | `tcp_connect` from the chain script → :8080 |
+| E6 | Reconstruct the sequence | **YES PARTIAL (no sequence construction)** | events join cleanly by exec_id/marker/container — the sensor emits a joinable chain; a pre-built "investigation sequence" view is a platform question |
+
+**Not covered live:** none (the join is manual reconstruction, not a built-in sequence view).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_exec":   {"process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h18-chain-v2-payload-open", "function_name": "security_file_open", "process": {"binary": "/usr/bin/bash"}, "args": [{"file_arg": {"path": "/tmp/citi-h18-payload.txt"}}]}}
+{"process_kprobe": {"policy_name": "citi-h18-chain-v2-chain-exec", "function_name": "security_bprm_check"}}
+{"process_kprobe": {"policy_name": "citi-h18-chain-v2-payload-open", "function_name": "security_file_open", "process": {"binary": "/usr/bin/cat"}}}
+{"process_kprobe": {"policy_name": "citi-h18-dns", "function_name": "ip_output", "process": {"binary": "/usr/bin/getent"}}}
+{"process_kprobe": {"policy_name": "citi-h18-chain-v2-egress-audit", "function_name": "tcp_connect", "process": {"binary": "/tmp/citi-h18-chain.sh"}, "args": [{"sock_arg": {"daddr": "172.17.0.1", "dport": 8080}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

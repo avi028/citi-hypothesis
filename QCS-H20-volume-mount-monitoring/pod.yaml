@@ -1,0 +1,44 @@
+# k8s/OpenShift workload for lab citi-h20 — volume mount monitoring.
+# Mounts a hostPath volume into the container and then:
+#   1. reads/writes inside the mounted volume (visible to the v2 file rule)
+#   2. mounts a tmpfs inside the container (visible to the sys_mount kprobe;
+#      mount(2) needs CAP_SYS_ADMIN, so this container is explicitly
+#      privileged — that is the whole point of the hypothesis)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h20
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h20-workload
+  namespace: citi-h20
+spec:
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      # activity inside the mounted volume (v2 file rules)
+      echo h20-proof > /mnt/citi-h20/from-pod.txt
+      cat /mnt/citi-h20/from-pod.txt
+      # mount a tmpfs inside the container (sys_mount kprobe)
+      mkdir -p /mnt/citi-h20-tmp
+      mount -t tmpfs tmpfs /mnt/citi-h20-tmp
+      echo h20-mount-proof > /mnt/citi-h20-tmp/proof.txt
+      umount /mnt/citi-h20-tmp
+      sleep 3600
+    volumeMounts:
+    - name: hostdata
+      mountPath: /mnt/citi-h20
+    securityContext:
+      privileged: true
+  volumes:
+  - name: hostdata
+    hostPath:
+      path: /var/qualys-poc/QCS-H20
+      type: DirectoryOrCreate

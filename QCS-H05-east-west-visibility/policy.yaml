@@ -12,7 +12,10 @@ spec:
     id: east-west-egress
     direction: egress
     action: audit
+    # 8080 = the service port (successful + baseline); 9090 = the denied
+    # port the hypothesis tests — attempts to it are recorded identically.
     matchPorts:
     - operator: In
       values:
       - "8080"
+      - "9090"

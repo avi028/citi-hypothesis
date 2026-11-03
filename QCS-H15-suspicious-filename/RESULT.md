@@ -51,6 +51,30 @@ operation, who did it".
 - Rename events report the source path in dentry args; the destination is
   also present on the hook's args.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Create monitored files | **YES** | `fim-create` × 3 (`Login.jsp`, `Sql.java`, `package.json`) |
+| E2 | Modify / rename / read / delete | **YES** | `fim-write`, `fim-rename` (mv), `fim-open` (cat), `fim-delete` (rm) |
+| E3 | Recreate one file via child process | **YES** | `sh` (parent `bash`) → open + write on `Login.jsp` |
+| E4 | Filename/path/op/timestamp/process/parent/workload | **YES** | resolved path + function + process + parent + container id on every event |
+| E5 | Alerting basis: filename vs policy vs activity | **YES** | alerting is **policy-match** (dir prefix + operation); the filename is event DATA, not the rule trigger |
+
+**Not covered live:** none.
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-create", "function_name": "security_inode_create", "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-write", "function_name": "vfs_write",
+ "process": {"binary": "/usr/bin/bash"}, "args": [{"file_arg": {"path": "/tmp/citi-h15/Login.jsp"}}]}}
+{"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-rename", "function_name": "security_path_rename", "process": {"binary": "/usr/bin/mv"}}}
+{"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-delete", "function_name": "security_path_unlink", "process": {"binary": "/usr/bin/rm"}}}
+{"process_kprobe": {"policy_name": "citi-h15-fim-v2-fim-open", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/sh", "parent": {"binary": "/usr/bin/bash"}}, "args": [{"file_arg": {"path": "/tmp/citi-h15/Login.jsp"}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

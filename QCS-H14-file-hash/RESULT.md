@@ -47,6 +47,29 @@ inventory) is a Qualys *platform* feature, not a runtime event.
 - A future runtime capability would need file-content hashing in the
   agent — record as platform/roadmap item, not current behavior.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Scan the image containing the test file | **NOT COVERED live** | platform scan |
+| E2 | Search for its hash and filename | **NOT SUPPORTED (runtime)** | no hash operator/field in any policy or event (verified by inspection + live) — filename search only via path rules |
+| E3 | Deploy + workload association | **YES** | opens recorded with container id |
+| E4 | Create/copy the same file into the running container | **YES** | create + open events for the runtime copy |
+| E5 | Image-scan vs runtime-file visibility | **Partial** | scan side can hash (platform); runtime side is path-only |
+
+**Blunt:** hash-based detection is NOT a runtime-sensor capability (see
+HYPOTHESIS-DETAILS annotation [Not supported]). Events carry no hash; the
+known sha256 (7ed7cf5c…32e3) appears nowhere in telemetry.
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h14-marker-v2-marker-open", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/sha256sum", "docker": "820d2b59ffdb"},
+ "args": [{"file_arg": {"path": "/etc/citi-h14-marker.txt"}}]}}
+// path-only — no hash field exists in any event payload
+```
+
 ## Files in this lab
 
 | File | Purpose |

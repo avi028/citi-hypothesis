@@ -48,6 +48,36 @@ in the cluster's API audit log.
   post-processing: the events carry `exec_id`/`parent_exec_id` and
   container ID to join on.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| S1 | Dedicated SA with minimal read-only RBAC | `pod.yaml` | `citi-h09-sa` + Role (get/list configmaps in citi-h09) |
+| S2 | Test pod with token automount enabled | `pod.yaml` | `automountServiceAccountToken: true` |
+| S3 | Access limited to non-sensitive resources | `pod.yaml` | ConfigMap only; no Secrets |
+| S4 | K8s/OpenShift API audit logs available | **NOT COVERED live** | platform leg |
+| S5 | File/process/network monitoring enabled | `policy.yaml` | file-open on SA dir + egress 443/6443 |
+| E1 | Read SA namespace + token paths | **YES** | `security_file_open` on `…/serviceaccount/token` + `namespace` (resolved `/run/...`) |
+| E2 | Authorized query (own namespace) | **YES** | `tcp_connect` → :6443 with attribution |
+| E3 | Unauthorized query (other namespace) | **YES** | same-identical `tcp_connect` (403 lives inside TLS — audit log only) |
+| E4 | Token access / process / API connection / workload identity | **YES** | open events (`cat` ← `bash`) + egress + container id; pod/ns in cluster |
+| E5 | Compare with API audit evidence | **NOT COVERED live** | platform leg |
+
+**Not covered live:** S4/E5 (audit logs). Real-cluster bonus: the policy also
+caught minikube's `storage-provisioner` pod reading its own SA token — the
+policy works on genuine in-cluster token access.
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h09-sa-token-v2-sa-token-read", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/cat", "docker": "4035f497f93f"},
+ "args": [{"file_arg": {"path": "/run/secrets/kubernetes.io/serviceaccount/token"}}]}}
+{"process_kprobe": {"policy_name": "citi-h09-sa-token-v2-k8s-api-egress", "function_name": "tcp_connect",
+ "process": {"binary": "/usr/bin/bash"},
+ "args": [{"sock_arg": {"daddr": "172.17.0.1", "dport": 6443, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

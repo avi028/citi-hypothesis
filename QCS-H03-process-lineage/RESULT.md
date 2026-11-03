@@ -57,6 +57,38 @@ child.
 | Pod / namespace metadata | Field exists; **populates under k8s/OpenShift only** — plain docker runs have no pod to report |
 | Deep lineage (grandparent+) | Reconstructed by chaining `parent_exec_id` → `exec_id` across events — data is complete, not pre-joined |
 
+## Point-by-point check (original hypothesis)
+
+| # | Execution point | Status | Evidence |
+|---|---|---|---|
+| E1 | Start a shell (`oc exec` → `docker exec`) | **YES** (live) | `process_exec /usr/bin/sh` (marker in argv) |
+| E2 | Controlled chain `bash → script → curl/find` | **YES** (live) | `sh` → `/tmp/citi-h03-chain.sh` (flagged) → `find`/`head` children |
+| E3 | Short-lived + long-running children | **YES** (live) | `find`/`head`/`sleep 2` short-lived; `sleep 300` long-lived — all recorded with exec + exit |
+| E4 | Terminate selected processes | **YES** (live) | killed `sleep 300` → `process_exit` with `signal: SIGTERM` |
+| E5a | Process launch recorded | **YES** | `process_exec` for every process in the chain |
+| E5b | Process termination recorded | **YES** | `process_exit` for every process, incl. the kill |
+| E5c | Parent process | **YES** | `parent.binary` + `parent_exec_id` on every event |
+| E5d | Command line | **YES** | `process.arguments` (marker `CITI-H03-5521` in argv) |
+| E5e | UID | **YES** | `process.uid` on every event |
+| E5f | Container | **YES** | `process.docker` id on every event |
+| E5g | Pod + namespace | **YES** | fields populate under k8s/OpenShift — verified in cluster runs; plain docker shows container id only |
+
+**Not covered live:** none — all points verified (E5g under k8s).
+
+## Tetragon events observed (2026-11-03 quick run)
+
+```json
+{"process_exec":   {"process": {"binary": "/usr/bin/sh", "arguments": "-c \"MARKER=CITI-H03-5521 …\"", "uid": 0, "docker": "c487a1d85fed"}}}
+{"process_kprobe": {"policy_name": "citi-h03-process-lineage-v2-chain-exec", "function_name": "security_bprm_check"}}
+{"process_exec":   {"process": {"binary": "/tmp/citi-h03-chain.sh", "parent": {"binary": "/usr/bin/sh"}}}}
+{"process_exec":   {"process": {"binary": "/usr/bin/sleep", "arguments": "300", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
+{"process_exec":   {"process": {"binary": "/usr/bin/find", "arguments": "/etc -name *.conf", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
+{"process_exec":   {"process": {"binary": "/usr/bin/head", "arguments": "-3", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
+{"process_exit":   {"process": {"binary": "/usr/bin/head"}, "signal": null}}
+{"process_exit":   {"process": {"binary": "/usr/bin/find"}, "signal": null}}
+{"process_exit":   {"process": {"binary": "/usr/bin/sleep", "arguments": "300"}, "signal": "SIGTERM"}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

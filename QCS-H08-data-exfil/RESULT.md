@@ -48,6 +48,30 @@ The file-open record shows path + permissions only — **file contents are
 never captured**. The connection record shows addresses and port, not the
 uploaded bytes. Qualys attributes the transfer without exposing the data.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Read the synthetic file | **YES** | `payload-open` (`security_file_open` by `cat`) |
+| E2 | Upload to approved endpoint (direct) | **YES** | `egress-audit` `tcp_connect` by `wget` (--post-file) |
+| E3 | Repeat via newly created runtime script | **YES** | script exec → `wget` upload2 → open + connect again |
+| E4 | Correlate file access / process exec / network | **YES** | open + connect on the same `wget` process; script chains as parent |
+| E5 | Contents NOT captured | **YES** | events carry path + socket tuple only — no payload bytes (blunt: only file NAME/path, never content) |
+| — | DNS leg | **NOT covered in this run** | flow used IPs only; add `ip_output` :53 (H06/H18 pattern) for the DNS leg |
+
+**Not covered live:** DNS leg (add ip_output raw TP if required).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h08-data-exfil-v2-payload-open", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/cat", "docker": "ab39fd3a52e2"},
+ "args": [{"file_arg": {"path": "/tmp/citi-h08-payload.txt"}}]}}
+{"process_kprobe": {"policy_name": "citi-h08-data-exfil-v2-egress-audit", "function_name": "tcp_connect",
+ "process": {"binary": "/usr/bin/wget"},
+ "args": [{"sock_arg": {"daddr": "172.22.0.2", "dport": 8080, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
+```
+
 ## Files in this lab
 
 | File | Purpose |

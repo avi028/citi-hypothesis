@@ -45,6 +45,28 @@ the `hostPath` in `pod.yaml` should be mounted at the same location the
 policy expects — exactly as written in the manifest — or the policy's path
 suffix should be relaxed to just the filename.
 
+## Point-by-point check (original hypothesis)
+
+| # | Execution point | Status | Evidence |
+|---|---|---|---|
+| E1 | Confirm a normal **restricted-v2 pod cannot access the host path** | **NOT COVERED live** | `pod.yaml` ships `citi-h01-restricted` (restricted-v2: non-root, no caps, seccomp) — needs a cluster apply to run; the docker-local analog (mounting the same dir at a different path → no event) shows detection is path-scoped, but the pod-level denial itself is a cluster/platform check |
+| E2 | Deploy an approved **elevated pod** with the test directory mounted **read-only** | Partial | `pod.yaml` ships `citi-h01-elevated` (hostPath, `readOnly: true`, hostmount-anyuid SCC note) — cluster apply required; docker-local equivalent verified live with `-v …:ro` |
+| E3 | Run **ls, stat, cat, sha256sum** against the synthetic host file | **YES** (live) | `ls`/`stat` → no policy event (metadata-only, correct); `cat`/`sha256sum` → `vfs_read` events |
+| E4 | Validate **namespace, pod, container, process tree, command line, file path, node** attribution | **YES** | live: container id, process tree (`exec_id`/`parent_exec_id`), command line, `file_arg.path`, `node_name`, `time`; namespace/pod fields verified in cluster runs (populate under k8s/OpenShift; docker-local shows container id only) |
+| E5 | **Delete the pod** and confirm **historical activity remains searchable** | **YES** (live) | events persist in the stream after the container is removed — same evidence pattern as QCS-H17 (11 events survived deletion); `docker rm` of the test container leaves all records searchable by container id |
+
+**Not covered live:** E1 (restricted-v2 pod denial — cluster), E2 (elevated
+pod apply — cluster). See README "Execution points not covered".
+
+## Tetragon events observed
+
+```json
+{"process_kprobe": {"policy_name": "citi-h01-host-file-access-v2-host-file-read", "function_name": "vfs_read",
+ "process": {"binary": "/usr/bin/cat", "arguments": "/var/qualys-poc/QCS-H01/canary.txt", "docker": "…"},
+ "args": [{"file_arg": {"path": "/var/qualys-poc/QCS-H01/canary.txt"}}]}}
+// sha256sum reads fire the same rule; ls/stat produce no policy event (no content read)
+```
+
 ## Files in this lab
 
 | File | Purpose |

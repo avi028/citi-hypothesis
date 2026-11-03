@@ -50,6 +50,29 @@ termination, and image blocklisting:
 - v1 has no process-exec base-policy — the exec-block leg is v2-only
   (v1 `action: kill` covers file operations only).
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Audit mode: detection without interruption | **YES** | probe ran (rc=0), policy event posted |
+| E2 | Enable enforcement (same scoped policy) | **YES** | `action: block` variant loaded |
+| E3 | Re-execute the process | **YES** | probe killed at exec — rc=137 |
+| E4 | Launch blocked or process terminated? | **YES** | `KPROBE_ACTION_SIGKILL` at `security_bprm_check` — exec stopped before commit |
+| E5 | Pod stability + enforcement telemetry | **YES** | container stayed alive after the kill; SIGKILL event recorded |
+| E6 | Net deactivation / memdump / pod kill / image blocklist | **NOT COVERED (platform)** | not runtime-sensor capabilities — Qualys platform response actions (blunt) |
+
+**Not covered live:** E6 (platform response menu).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h16-probe-audit-v2-probe-exec-audit", "function_name": "security_bprm_check"}}
+// audit: probe runs (rc=0)
+{"process_kprobe": {"policy_name": "citi-h16-probe-enforce-v2-probe-exec-block", "function_name": "security_bprm_check",
+ "process": {"binary": "/usr/bin/bash"}, "action": "KPROBE_ACTION_SIGKILL"}}
+// enforce: probe killed at exec (rc=137), container stable
+```
+
 ## Files in this lab
 
 | File | Purpose |

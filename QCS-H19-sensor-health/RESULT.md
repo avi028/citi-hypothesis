@@ -51,6 +51,27 @@ platform's sensor-profile view of exactly this cycle.
 - The event gap itself is searchable evidence: timestamps around the
   outage delimit the blind window.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Record normal DaemonSet + sensor health | **YES** | agent up, probe events flowing |
+| E2 | Test workloads on monitored nodes | **YES** | probe exec events attributed to containers |
+| E3 | Approved sensor interruption (one node) | **YES** (local sim) | agent killed |
+| E4 | Node reported degraded / not reporting | **YES** | **0 events during outage** — gap visible; degraded-node UI = platform sensor profile |
+| E5 | Restore + confirm recovery + event flow | **YES** | agent restarted (same flags) → policy re-applied → capture reconnected → probe event resumes |
+
+**Not covered live:** none (the *reporting* view is platform; the sensor behavior is proven).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+// baseline: 1 h19 event → outage: 0 new → recovery: 1 new (total 2)
+{"process_kprobe": {"policy_name": "citi-h19-health-probe-v2-health-exec", "function_name": "security_bprm_check",
+ "process": {"binary": "/usr/lib/systemd/systemd"}}}
+// the recovery event timestamp (09:14:51Z) follows the outage gap
+```
+
 ## Files in this lab
 
 | File | Purpose |

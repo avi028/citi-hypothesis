@@ -47,6 +47,29 @@ not delete evidence with the pod.
   carries exec_id/parent_exec_id + container id — the same join used in
   H03/H18.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Known file/process/network sequence | **YES** | payload write+read + connect :8080 |
+| E2 | Record workload identifiers | **YES** | container id `5b4e59864e9e` captured pre-delete |
+| E3 | Delete pod / let Job complete | **YES** | `docker rm -f` |
+| E4 | Search by deleted identifiers | **YES** | **13 events** for the deleted container, 7 policy-matched |
+| E5 | Evidence remains + activity reconstructible | **YES** | exec/exit + policy events join by exec_id chain + container id |
+
+**Not covered live:** none (retention *window* = platform setting, e.g. 7 days).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+// after the container was deleted — events remain searchable
+{"process_kprobe": {"policy_name": "citi-h17-evidence-v2-payload-open", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/cat", "docker": "5b4e59864e9e"}}}
+{"process_kprobe": {"policy_name": "citi-h17-evidence-v2-egress-audit", "function_name": "tcp_connect",
+ "process": {"binary": "/usr/bin/bash"}}}
+// 13 events total for the deleted container id
+```
+
 ## Files in this lab
 
 | File | Purpose |

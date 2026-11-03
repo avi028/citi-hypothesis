@@ -61,6 +61,30 @@ the connection; the audit log proves the identity and the denial.
   (403) are different things — Qualys sees both as attempts; only the
   audit log distinguishes "couldn't reach" from "wasn't allowed".
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Query allowed resources in source namespace | **YES** | `tcp_connect` → :6443 (with token open by client) |
+| E2 | Attempt list/read in target namespace | **YES** | identical `tcp_connect` → :6443 |
+| E3 | OpenShift denies the unauthorized op | **NOT COVERED live** | the 403 is HTTP-inside-TLS — only in API audit logs (platform) |
+| E4 | Qualys captures API connection + initiating process | **YES** | `tcp_connect` with `bash`/`cat` attribution + container id |
+| E5 | Audit logs identify SA + authz result | **NOT COVERED live** | platform leg |
+
+**Not covered live:** E3/E5 (audit logs).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h10-cross-ns-v2-sa-token-read", "function_name": "security_file_open",
+ "process": {"binary": "/usr/bin/cat", "docker": "20301d264c54"},
+ "args": [{"file_arg": {"path": "/run/secrets/kubernetes.io/serviceaccount/token"}}]}}
+{"process_kprobe": {"policy_name": "citi-h10-cross-ns-v2-k8s-api-egress", "function_name": "tcp_connect",
+ "process": {"binary": "/usr/bin/bash"},
+ "args": [{"sock_arg": {"daddr": "172.17.0.1", "dport": 6443, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
+// authorized, denied, and refused (:443) connects — all identical events
+```
+
 ## Files in this lab
 
 | File | Purpose |

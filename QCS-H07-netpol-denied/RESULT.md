@@ -41,6 +41,32 @@ erase it.
   or flow logs alongside. Qualys = attempt telemetry; platform logs =
   verdict telemetry. Together they answer both questions.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| S1 | Source + target namespaces | docker | `citi-cli` client + `citi-srv` HTTP service on `citi-net` |
+| S2 | Target service with default-deny NetworkPolicy | **NOT COVERED live** | docker has no NetworkPolicy — simulated with an iptables DROP (RESULT S2) |
+| S3 | Temporary allow policy for baseline | docker (no policy) | baseline connect succeeds |
+| S4 | Qualys network monitoring enabled | `policy.yaml` | egress audit :8080 |
+| S5 | OpenShift network evidence for corroboration | **NOT COVERED live** | platform leg |
+| E1 | Connect while allowed | **YES** | `tcp_connect` event (client rc=0) |
+| E2 | Apply default-deny (iptables DROP) | **YES** (sim) | DROP rule on FORWARD |
+| E3 | Repeat the connection | **YES** | client rc=1 (blocked) but `tcp_connect` **still recorded** |
+| E4 | Compare successful vs blocked telemetry | **YES** | events are **identical** — attempt recorded, outcome not |
+| E5 | Attempt / success / no event? | **YES** | Qualys reports the attempt (H06/H07 pattern confirmed) |
+
+**Not covered live:** S2/S5 (real NetworkPolicy + OpenShift logs — cluster/platform).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h07-netpol-denied-v2-egress-audit", "function_name": "tcp_connect",
+ "process": {"binary": "/usr/bin/wget", "docker": "ab39fd3a52e2"},
+ "args": [{"sock_arg": {"daddr": "172.22.0.2", "dport": 8080, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
+// identical event for the allow baseline AND the iptables-DROPPED attempt
+```
+
 ## Files in this lab
 
 | File | Purpose |

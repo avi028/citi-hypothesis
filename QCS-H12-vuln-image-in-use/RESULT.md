@@ -47,6 +47,27 @@ that never ran it.
   gap is inherent to exec-based instrumentation.
 - v1 has no process-exec base-policy; closest is file-open on the binary.
 
+## Point-by-point check (original hypothesis)
+
+| # | Point | Status | Evidence |
+|---|---|---|---|
+| E1 | Scan image in registry | **NOT COVERED live** | Qualys registry scan — platform |
+| E2 | Deploy image into test namespace | docker | debian:stable-slim (bash 5.2.37 as the "vulnerable package") |
+| E3 | Invoke package in A, not B | **YES** | A runs `bash -c 'echo in-use-marker'`; B never runs bash |
+| E4 | Compare vuln / exploitability / in-use | **YES** (runtime half) | A: 1 policy event; B: **0** — the in-use signal is binary-exec presence |
+| E5 | Image/container/package/version/workload/remediation metadata | **Partial** | runtime side: container id + binary path + argv on events; scan metadata = platform |
+
+**Not covered live:** E1/E4-scan/E5-scan legs (platform).
+
+## Tetragon events observed (2026-11-03 run)
+
+```json
+{"process_kprobe": {"policy_name": "citi-h12-vuln-pkg-exec-v2-vuln-pkg-exec", "function_name": "security_bprm_check",
+ "process": {"binary": "/usr/lib/systemd/systemd"},
+ "args": [{"linux_binprm_arg": {"path": "/usr/bin/bash"}}]}}
+// exactly 1 event (workload A); workload B produced zero
+```
+
 ## Files in this lab
 
 | File | Purpose |

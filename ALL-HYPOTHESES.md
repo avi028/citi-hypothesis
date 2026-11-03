@@ -1,4 +1,4 @@
-# citi-hypothesis — All Labs Summary (H01–H19)
+# citi-hypothesis — All Labs Summary (H01–H20)
 
 Consolidated reference for every hypothesis lab: the hypothesis in plain
 language, the workload manifest (`pod.yaml`), the detection policy in both
@@ -3290,5 +3290,159 @@ spec:
 ### Observed data (v1 run)
 
 Converted + load-verified (`file-open` on the health binary).
+
+---
+
+## QCS-H20-volume-mount-monitoring
+
+### QCS-H20 — Volume Mount Monitoring in Containers
+
+**Hypothesis.** A Cilium/Tetragon policy can watch volume mounts — both
+the volumes a container receives at start (`docker run -v`) and mounts a
+process performs inside a running container — and report who did it, to
+what target, with what filesystem, and whether it succeeded.
+
+**Verdict.** **Partially — and the split is sharp.** The raw `sys_mount`
+kprobe policy captures **every runtime-driven mount at container start**
+(the `-v` volume bind mount, overlay rootfs, proc/devpts/sysfs/cgroup2/
+shm, resolv.conf/hostname/hosts, netns) with source, target, fstype,
+flags and return value. But a `mount(2)` executed by a process **inside a
+running container** produces no event in this build
+(`release/v1.6-1-q5`), even though a kernel-level kprobe on
+`__x64_sys_mount` fires for those calls and `sys_openat`/`vfs_read` events
+from the same process are emitted. RuntimePolicy v2 cannot express the
+mount syscall at all; its file rules do see reads inside mounted volumes.
+
+**CRS version support:** n/a — raw Cilium TracingPolicy (`cilium.io/v1alpha1`)
+syscall hook; v2 has no syscall rule type yet (see "Future implementation").
+
+### Raw Cilium TracingPolicy — `QCS-H20-volume-mount-monitoring/tracingpolicy.yaml`
+
+```yaml
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: citi-h20-volume-mount-monitoring
+spec:
+  kprobes:
+  - call: "sys_mount"
+    syscall: true
+    return: true
+    message: "mount() called in a container"
+    args:
+    - index: 0
+      type: "string"   # source
+    - index: 1
+      type: "string"   # target
+    - index: 2
+      type: "string"   # filesystemtype
+    - index: 3
+      type: "uint64"   # mountflags
+    returnArg:
+      index: 0
+      type: "int"      # 0 success / negative errno
+    selectors:
+    - matchActions:
+      - action: Post
+```
+
+### RuntimePolicy v2 — `QCS-H20-volume-mount-monitoring/policy.yaml`
+
+```yaml
+# v2 cannot express the mount(2) syscall; this rule watches file activity
+# inside a mounted volume (the mount target path), which DOES work
+# in-container.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h20-volume-mount-monitoring
+spec:
+  rules:
+  - name: mounted-volume-read
+    type: file
+    id: vol-read
+    fileOperation: read
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /mnt/citi-h20/
+  - name: mounted-volume-create
+    type: file
+    id: vol-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /mnt/citi-h20/
+```
+
+### Workload manifest (pod.yaml) — `QCS-H20-volume-mount-monitoring/pod.yaml`
+
+```yaml
+# Pod mounting a hostPath volume and performing file activity inside it,
+# plus a privileged tmpfs mount (mount(2) needs CAP_SYS_ADMIN).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h20
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h20-workload
+  namespace: citi-h20
+spec:
+  restartPolicy: Never
+  containers:
+  - name: workload
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sh", "-c", |
+      echo h20-proof > /mnt/citi-h20/from-pod.txt
+      cat /mnt/citi-h20/from-pod.txt
+      mkdir -p /mnt/citi-h20-tmp
+      mount -t tmpfs tmpfs /mnt/citi-h20-tmp
+      echo h20-mount-proof > /mnt/citi-h20-tmp/proof.txt
+      umount /mnt/citi-h20-tmp
+      sleep 3600]
+    volumeMounts:
+    - name: hostdata
+      mountPath: /mnt/citi-h20
+    securityContext:
+      privileged: true
+  volumes:
+  - name: hostdata
+    hostPath:
+      path: /var/qualys-poc/QCS-H20
+      type: DirectoryOrCreate
+```
+
+### Observed data
+
+| Case | sys_mount event? | Record |
+|---|---|---|
+| `docker run -v` volume mount | **Yes** | bind `source=/tmp/citi-h20-data` → container, `fstype=bind`, `flags=20480`, `ret=0` + full start sequence (overlay/proc/tmpfs/devpts/sysfs/cgroup2/mqueue/shm/resolv/hostname/hosts/netns) |
+| file activity inside mounted volume | **Yes** | v2 `vol-read`: `vfs_read` on `/mnt/citi-h20/seed.txt` and `new.txt` by `/usr/bin/cat` |
+| unprivileged in-container mount (EPERM) | **No** | mount(2) executed (rc=32), no event |
+| `--cap-add SYS_ADMIN` in-container mount | **No** | mount succeeded, no event |
+| `--privileged` bind of host `/` | **No** | mount succeeded, no event |
+| host-side mount (control) | **Yes** | `tmpfs → /tmp/citi-h20-hostmnt`, `ret=0` |
+
+Chase notes: kernel-level kprobe on `__x64_sys_mount` fires for the
+in-container call; the process is in the execve map (nonzero ktime);
+`sys_openat` + `vfs_read` events from the same process are emitted — so the
+drop is in Tetragon's generic-kprobe/tracepoint path for processes in
+container cgroups. `unshare -m` (fresh mount namespace, host cgroup) fires
+fine, so the discriminator is the container cgroup, not the namespace.
+Docker container-id fields are empty in this environment.
+
+Flag experiments (full case set re-run): `--enable-host-ns-filter=false`
+(also with `--enable-pod-ns-filter=false`, `--enable-process-ns`) does
+**not** change coverage — in-container mounts stay silent — but it fixes
+attribution: runtime mounts are then correctly attributed to `/usr/bin/runc`
+(vs `/usr/lib/systemd/systemd` with the default `true`) and host mounts to
+`mount(1)`. `--enable-qualys-sensors` fails to start the agent
+(`bpf_qualys_dnsr.o` load error on this kernel).
 
 ---

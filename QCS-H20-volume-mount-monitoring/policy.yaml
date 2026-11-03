@@ -1,0 +1,29 @@
+# RuntimePolicy v2 — complementary rule for the volume-mount lab.
+#
+# v2 cannot express the mount(2) syscall itself (that needs the raw
+# tracingpolicy.yaml), but it CAN watch file activity inside a mounted
+# volume: everything read or created under the mount target path.
+apiVersion: qualys.com/v2
+kind: RuntimePolicy
+metadata:
+  name: citi-h20-volume-mount-monitoring
+spec:
+  rules:
+  - name: mounted-volume-read
+    type: file
+    id: vol-read
+    fileOperation: read
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /mnt/citi-h20/
+  - name: mounted-volume-create
+    type: file
+    id: vol-create
+    fileOperation: create
+    action: audit
+    matchFilePaths:
+    - operator: Prefix
+      values:
+      - /mnt/citi-h20/
