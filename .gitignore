@@ -13,3 +13,5 @@ Desktop.ini
 *.test
 /tools/bin/
 /tools/e2e-verify/
+__pycache__/
+*.pyc

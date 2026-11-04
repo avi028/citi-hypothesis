@@ -162,6 +162,97 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 | `QCS-H17-deleted-pod-retention` | 11 events survive container deletion, searchable by id/marker | Supported (retention window = platform setting) | 1.45+ |
 | `QCS-H18-signal-correlation` | exec → file → read → DNS → connect chain reconstructs from events | Supported at sensor level (joinable; DNS needs raw TP) | 1.46+* |
 | `QCS-H19-sensor-health` | Interruption → event gap; recovery → events resume | Supported (degraded-node UI = platform sensor profile) | 1.45+ |
+
+## hypo-run — automated lab runner
+
+`hypo-run.py` runs any lab end-to-end on a live cluster or standalone host —
+preflight -> selection -> per-lab execution (policy -> approval gate ->
+workload -> evidence -> verdict -> cleanup) -> consolidated report. It is
+**fully self-contained (Python stdlib only)**: no kubectl/helm/docker/CLI
+dependencies — everything goes through the Kubernetes REST API (kubeconfig,
+create-via-POST/PUT, CRD status polling, pod logs, a minimal WebSocket exec
+client) with a built-in YAML parser. It also keeps the standalone
+`ebpf-operator` flow as a fallback backend.
+
+```bash
+# run on the EC2 host, as root
+sudo python3 hypo-run.py --dry-run                 # preflight + plan only (zero side effects)
+sudo python3 hypo-run.py --labs 1,3-5,7 --yes     # run selected labs without prompts
+sudo python3 hypo-run.py --labs all --yes         # run every runnable lab
+sudo python3 hypo-run.py                          # interactive: pick labs, confirm each
+```
+
+Key flags (all also settable via `HYPO_RUN_*` env vars):
+
+| Flag | Meaning |
+|------|---------|
+| `--labs 1,3-5,7 / all` | selection (indices are fixed, natural order H01..H20) |
+| `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers |
+| `--labs-dir DIR` | lab directory (default: repo root) |
+| `--events-file FILE` | capture file (operator backend; k8s backend reads sensor pod logs) |
+| `--log-file FILE` | tee terminal output to a file |
+| `--dry-run` | preflight + plan only, no side effects |
+| `--yes / --no-prompt` | no interactive confirmation |
+| `--keep` | leave policy + pod in place after each lab |
+| `--fail-fast` | stop the run after the first SKIPPED/NOT-PROVEN lab |
+| `--settle SECS` | wait after workload activity (default 5) |
+| `--timeout-poll SECS` | policy-approval poll budget (default 60) |
+| `--timeout-cmd SECS` | per-command timeout (default 30) |
+| `--max-log-bytes` / `--max-events` | evidence window / print caps |
+
+Per lab it: prints the hypothesis briefing + policy-to-workload mapping;
+applies `policy.yaml` via the k8s API; **waits for the approval gate**
+(`RuntimePolicy.status.state = Applied` — the same signal the manual
+`ebpflog.sh` flow checks); applies `pod.yaml` and waits for the workload to
+run; settles; greps the sensor logs for policy/rule-id evidence (deduped,
+capped); records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,
+with weak-evidence notes when a workload fails to start); and cleans up
+(delete policy + pod) unless `--keep`.
+
+Consolidated reports (JSON + Markdown, written atomically) land in
+`$RUN_DIR/hypo-run-<timestamp>.{json,md}`. Exit codes: `0` done, `1`
+preflight/env failure, `2` usage, `130` interrupted (Ctrl+C; second Ctrl+C
+exits immediately). A pidfile lock prevents concurrent runs. Run
+`python3 hypo-run.py --help` for the full usage; `test-hypo-run.py` exercises
+the selection/parsing/event-matching logic locally.
+
+## Verification run (hypo-run, 2026-11-04)
+
+Full pass of all 20 labs on a live cluster (k8s backend): policy applied via
+the k8s API -> approval gate (`RuntimePolicy.status.state = Applied`) ->
+workload pod -> event evidence from the sensor logs -> verdict -> cleanup.
+Every lab's test workload now starts (see the pod.yaml `runAsNonRoot` fix);
+negative/restricted control pods still fail as intended.
+
+| # | Lab | Verdict | Evidence | Duration |
+|---|-----|---------|----------|----------|
+| 1 | QCS-H01-host-file-access | PROVEN | 4 | 133.7s |
+| 2 | QCS-H02-runtime-file-drift | PROVEN | 20 | 20.5s |
+| 3 | QCS-H03-process-lineage | PROVEN | 3 | 12.4s |
+| 4 | QCS-H04-fileless-exec | PROVEN | 32 | 14.4s |
+| 5 | QCS-H05-east-west-visibility | PROVEN | 11 | 12.7s |
+| 6 | QCS-H06-north-south | PROVEN | 53 | 14.4s |
+| 7 | QCS-H07-netpol-denied | PROVEN | 78 | 12.6s |
+| 8 | QCS-H08-data-exfil | PROVEN | 107 | 14.5s |
+| 9 | QCS-H09-service-account-token | PROVEN | 20 | 14.6s |
+| 10 | QCS-H10-cross-ns-rbac | PROVEN | 36 | 16.7s |
+| 11 | QCS-H11-priv-escalation | PROVEN | 3 | 131.7s |
+| 12 | QCS-H12-vuln-image-in-use | PROVEN | 8 | 14.5s |
+| 13 | QCS-H13-image-lineage-drift | PROVEN | 24 | 16.6s |
+| 14 | QCS-H14-file-hash | PROVEN | 13 | 14.4s |
+| 15 | QCS-H15-suspicious-filename | PROVEN | 30 | 22.5s |
+| 16 | QCS-H16-policy-enforcement | PROVEN | 6 | 14.6s |
+| 17 | QCS-H17-deleted-pod-retention | PROVEN | 377 | 133.0s |
+| 18 | QCS-H18-signal-correlation | PROVEN | 417 | 16.4s |
+| 19 | QCS-H19-sensor-health | PROVEN | 3 | 12.4s |
+| 20 | QCS-H20-volume-mount-monitoring | PROVEN | 8 | 14.4s |
+
+**20 / 20 PROVEN.** Evidence = matching detection events in the sensor logs
+(policy-name / rule-id matches, deduped). H01/H11/H17 took longer because
+their negative-control pods intentionally fail and the Job's ready-wait runs
+its budget; the test workloads still ran and produced evidence.
+
+### v1 coverage per lab (H01–H10)
 **CRS version per lab**: `1.45+` = RuntimePolicy v1 suffices; `1.46+`
 = RuntimePolicy v2 required (process/exec rules); a `*` marks a lab with
 one leg that needs a raw Cilium TracingPolicy hook (future release).
