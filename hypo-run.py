@@ -920,19 +920,6 @@ class Preflight:
             log("  [%s] %s" % (severity, label))
 
 
-def imds_probe():
-    """EC2 IMDS must not be an error. Returns instance-id or None."""
-    try:
-        
-        req = urllib.request.Request(
-            "http://169.254.169.254/latest/meta-data/instance-id",
-            headers={"User-Agent": "hypo-run"},
-        )
-        with urllib.request.urlopen(req, timeout=2) as r:
-            return r.read(200).decode("utf-8", errors="replace").strip() or None
-    except Exception:
-        return None
-
 
 def port_listening(port, host="127.0.0.1"):
     try:
@@ -1127,8 +1114,6 @@ def preflight(labs, dry_run=False):
     rc, out, _ = run(["hostname", "-I"], quiet=True)
     if rc == 0 and out.strip():
         facts["ip"] = out.strip().split()[0]
-    imds = imds_probe()
-    facts["imds_instance_id"] = imds
     log("[INFO] kernel=%s host=%s ip=%s gateway=%s dns=%s" % (
         facts["kernel"], facts["hostname"], facts["ip"], facts["gateway"], ",".join(facts["dns"])))
     if facts["ports"]:
@@ -1138,10 +1123,6 @@ def preflight(labs, dry_run=False):
     log("[INFO] docker: %s" % (facts["docker"] or "no daemon info"))
     if facts["agent_flags"]:
         log("[INFO] agent flags: %s" % " ".join(facts["agent_flags"]))
-    if imds:
-        log("[INFO] EC2 IMDS instance-id: %s" % imds)
-    else:
-        log("[INFO] EC2 IMDS not reachable (not an error)")
 
     # agent flags vs labs
     need_cred, need_anc = labs_needing_flags(labs)
