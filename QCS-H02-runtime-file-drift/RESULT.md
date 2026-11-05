@@ -9,21 +9,28 @@ activity instead of just watching it.
 
 ## Verdict
 
-**It works, in both modes.** Every stage of the file's life produced a
-detection record. In enforcement mode, the unauthorized write and the
-attempt to run the dropped script were both **killed on the spot** — the
-script never ran.
+**Detected in both v1 and v2; enforcement is partial.** Every drift step
+(create/write/metadata/rename/delete) is detected with attribution in both
+policy forms. In enforcement mode, the **write into the blocked directory
+is stopped** (SIGKILL mid-write, pod exit 137). The **one caveat in both
+v1 and v2: the sensor cannot stop the shell script from running** — the
+exec of the dropped script is not blocked (v1 has no exec rule at all;
+v2's exec-block rule does not stop the script from running), so the
+script's payload executes.
 
-## What we did
+## What we did (k8s two-phase flow, `hypo-run.py`)
 
-- Wrote a policy (`policy.yaml`) that says: *"report every create, write,
-  permission change, rename, and delete under `/tmp/citi-h02/`"*
-- Ran a container that — after startup — created a script in `/tmp`,
-  modified it, `chmod +x`'d it, executed it, renamed it, and deleted it
-- Then applied a second policy (`policy-enforce.yaml`) that says *"kill
-  the process"* instead of *"report"*, and repeated the attack
+- **Audit phase**: applied `policy-v1.yaml` (5 v1 base-policy CRs:
+  file-create/write/metadata/rename/delete on `/tmp/citi-h02/`), waited for
+  approval, ran `pod.yaml` — a pod that drops a script into `/tmp/citi-h02`
+  after startup, modifies it, chmods it, runs it, renames it, deletes it.
+  Grepped the sensor logs for the detection payloads.
+- **Enforcement phase**: removed the audit pod + policy, applied
+  `policy-v1-enforce.yaml` (file-write **kill** on `/tmp/citi-h02-block/`),
+  then ran `pod-enforce.yaml` — a pod that attempts to (1) exec a dropped
+  script staged inside the blocked dir and (2) write `evil.sh` into it.
 
-## What we observed — audit mode
+## What we observed — audit mode (both v1 and v2)
 
 Every action produced a detection record naming the program, the full
 command line, the container, the file path, and the node:
@@ -37,21 +44,25 @@ command line, the container, the file path, and the node:
 | `mv` rename | "file renamed" event — **both** old and new names captured |
 | `rm` delete | "file deleted" event — name preserved even though file is gone |
 
-Nothing was missed; even the delete leaves a searchable record.
+Nothing was missed; even the delete leaves a searchable record. Verified
+live on the cluster in v1 mode (40 evidence: 6 policy + 34
+activity/process_exec).
 
 ## What we observed — enforcement mode
 
 | Attempt | Result |
 |---|---|
-| `echo x > /tmp/citi-h02-block/evil.sh` | Shell **SIGKILLed mid-write** (exit 137). The kill itself is also recorded as an event. |
-| Execute dropped script `/tmp/citi-h02-block/drift.sh` | **Killed before it ran** (exit 137); the script's payload never executed. |
+| `echo evil > /tmp/citi-h02-block/evil.sh` | Shell **SIGKILLed mid-write** (exit 137, pod Failed). The kill is recorded as a File event payload. |
+| Execute dropped script `/tmp/citi-h02-block/drift.sh` | **NOT blocked — the script runs.** The sensor cannot stop the shell script from executing; the exec is visible in the base process stream (`Process ALLOWED`, process-tree entry) but no exec rule stops it. **Caveat in both v1 and v2.** |
 
 ## One thing to know
 
 - "Block" means the offending **process is terminated** (SIGKILL) at the
-  moment it touches the watched path or tries to exec — it is not a clean
-  "permission denied", the actor dies. That's the intended behavior for
-  enforcement.
+  moment it touches the watched path — it is not a clean "permission
+  denied", the actor dies. That's the intended behavior for enforcement.
+- The **script-exec leg is the gap**: v1 has no exec/process base-policy at
+  all, and the v2 process rule does not stop the shell script from running.
+  Only the file-write leg is actually enforced.
 - The audit policy and the enforce policy are separate RuntimePolicy
   files; on OpenShift you'd apply audit first, then switch to enforce.
 
@@ -64,51 +75,37 @@ Nothing was missed; even the delete leaves a searchable record.
 | E1c | Metadata change (chmod) | **YES** (live) | `security_path_chmod` (`chmod`) |
 | E1d | Rename | **YES** (live) | `security_path_rename` (`mv`) |
 | E1e | Delete | **YES** (live) | `security_path_unlink` (`rm`) |
-| E2 | Enforce: kill the writer on block-dir write | **YES** (live) | `KPROBE_ACTION_SIGKILL` at `vfs_write`, container exit 137 |
-| E3 | Enforce: block exec of the dropped script | **YES** (live) | `KPROBE_ACTION_SIGKILL` at `security_bprm_check`, script rc=137, container stable |
-| E4 | Attribution (process, cmdline, UID, container, node, time) | **YES** (live) | `process.binary`, `arguments`, `uid`, `docker`, `node_name`, `time` on every event; pod/ns fields verified in cluster runs |
+| E2 | Enforce: kill the writer on block-dir write | **YES** (live, v1) | `File event payload` (kill action), pod exit 137 — write stopped |
+| E3 | Enforce: block exec of the dropped script | **NO — caveat** | the script **runs**; the sensor cannot stop the shell script from executing (v1: no exec rule; v2: exec-block does not stop it) |
+| E4 | Attribution (process, cmdline, UID, container, node, time) | **YES** (live) | `process.binary`, `arguments`, `uid`, container, `node_name`, `time` on every event; pod/ns fields verified in cluster runs |
 
-**Not covered live:** none — all points verified.
+**Not covered live:** E3 (script-exec block) — the caveat in both v1 and v2.
 
-## eBPF-Agent events observed (2026-11-03 quick run)
+## eBPF-Agent events observed (2026-11-05 cluster runs, v1)
 
 ```json
-// audit (policy citi-h02-file-drift)
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-create",   "function_name": "security_inode_create",  "process": {"binary": "/usr/bin/bash"}}}
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-write",    "function_name": "vfs_write",             "process": {"binary": "/usr/bin/bash"}}}
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-metadata", "function_name": "security_path_chmod",   "process": {"binary": "/usr/bin/chmod"}}}
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-rename",   "function_name": "security_path_rename", "process": {"binary": "/usr/bin/mv"}}}
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-delete",   "function_name": "security_path_unlink", "process": {"binary": "/usr/bin/rm"}}}
+// audit (policy citi-h02-drift-*)
+{"process_kprobe": {"policy_name": "citi-h02-drift-create",   "function_name": "security_inode_create",  "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h02-drift-write",    "function_name": "vfs_write",             "process": {"binary": "/usr/bin/bash"}}}
+{"process_kprobe": {"policy_name": "citi-h02-drift-metadata", "function_name": "security_path_chmod",   "process": {"binary": "/usr/bin/chmod"}}}
+{"process_kprobe": {"policy_name": "citi-h02-drift-rename",   "function_name": "security_path_rename", "process": {"binary": "/usr/bin/mv"}}}
+{"process_kprobe": {"policy_name": "citi-h02-drift-delete",   "function_name": "security_path_unlink", "process": {"binary": "/usr/bin/rm"}}}
 
-// enforce (policy citi-h02-file-drift-enforce, action: block)
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-enforce-v2-drift-block-write", "function_name": "vfs_write",            "process": {"binary": "/usr/bin/bash"}, "action": "KPROBE_ACTION_SIGKILL"}}
-{"process_kprobe": {"policy_name": "citi-h02-file-drift-enforce-v2-drift-block-exec",  "function_name": "security_bprm_check", "process": {"binary": "/usr/bin/bash"}, "action": "KPROBE_ACTION_SIGKILL"}}
+// enforce (policy citi-h02-drift-block-write, action: kill)
+//   write attempt -> killed: File event payload (SIGKILL), pod exit 137
+//   exec attempt  -> NOT blocked: "Process ALLOWED - Regex match: process='/tmp/citi-h02-block/drift.sh'"
+//                    + "New process added to tree: /tmp/citi-h02-block/drift.sh" (the script ran)
 ```
 
 ## Files in this lab
 
 | File | Purpose |
 |---|---|
-| `policy.yaml` | Audit-mode detection rules (create/write/metadata/rename/delete) |
-| `policy-enforce.yaml` | Enforcement rules — block writes + block execution |
-| `pod.yaml` | Apply to the cluster to generate the drift activity |
+| `policy-v1.yaml` / `policy-v2.yaml` | Audit-mode detection rules (create/write/metadata/rename/delete on `/tmp/citi-h02/`) |
+| `policy-v1-enforce.yaml` / `policy-enforce.yaml` | Enforcement rules — kill the writer on `/tmp/citi-h02-block/` (v2 also carries an exec-block rule that does not stop the script) |
+| `pod.yaml` | Audit-phase workload (the drift lifecycle) |
+| `pod-enforce.yaml` | Enforcement-phase workload (exec + write attempts into the blocked dir) |
 | `RESULT.md` | This document |
 
-## docker run command used for the local proof
-
-```bash
-# audit phase
-docker run --rm debian:stable-slim sh -c '
-  DIR=/tmp/citi-h02; mkdir -p "$DIR"
-  printf "#!/bin/sh\necho drift-v1\n" >  "$DIR/drift.sh"
-  printf "#!/bin/sh\necho drift-v2\n" >> "$DIR/drift.sh"
-  chmod 755 "$DIR/drift.sh"; "$DIR/drift.sh"
-  mv "$DIR/drift.sh" "$DIR/drift.sh.renamed"; rm "$DIR/drift.sh.renamed"'
-
-# enforce phase (script staged from host so it exists inside the blocked dir)
-docker run -d --name citi-h02-enf \
-  -v /tmp/citi-h02-stage/drift.sh:/tmp/citi-h02-block/drift.sh:ro \
-  debian:stable-slim sleep 600
-docker exec citi-h02-enf sh -c 'echo x > /tmp/citi-h02-block/evil.sh'  # rc=137, killed
-docker exec citi-h02-enf /tmp/citi-h02-block/drift.sh                  # rc=137, killed
-```
+Two-phase flow: `sudo python3 hypo-run.py --labs 2 --yes` runs audit →
+enforcement automatically (v1 default; `--policy-mode v2` for v2).

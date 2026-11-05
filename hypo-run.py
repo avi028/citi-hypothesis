@@ -124,7 +124,7 @@ import time
 from collections import OrderedDict
 from types import SimpleNamespace
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -1020,6 +1020,12 @@ def scan_labs(labs_dir):
             "pod_path": os.path.join(d, "pod.yaml"),
             "tracing_path": os.path.join(d, "tracingpolicy.yaml"),
             "result_path": os.path.join(d, "RESULT.md"),
+            "enforce_pod_path": os.path.join(d, "pod-enforce.yaml"),
+            "enforce_policy_v2_path": os.path.join(d, "policy-enforce.yaml"),
+            "enforce_policy_v1_path": os.path.join(d, "policy-v1-enforce.yaml"),
+            "enforce_policy_path": "",
+            "enforce_policy": None,
+            "enforce_pod": None,
             "runnable": True,
             "reason": "",
             "verdict": "",
@@ -1053,6 +1059,12 @@ def scan_labs(labs_dir):
             try:
                 lab["policy"] = parse_policy_yaml(lab["policy_path"])
                 lab["pod"] = parse_pod_yaml(lab["pod_path"])
+                # two-phase labs (QCS-H02): enforcement policy + workload manifest
+                ef_pol = lab["enforce_policy_v2_path"] if lab["mode"] == "v2" else lab["enforce_policy_v1_path"]
+                if os.path.isfile(ef_pol) and os.path.isfile(lab["enforce_pod_path"]):
+                    lab["enforce_policy"] = parse_policy_yaml(ef_pol)
+                    lab["enforce_pod"] = parse_pod_yaml(lab["enforce_pod_path"])
+                    lab["enforce_policy_path"] = ef_pol
             except Exception as e:
                 lab["runnable"] = False
                 lab["reason"] = "malformed YAML: %s" % e
@@ -1368,6 +1380,9 @@ def briefing(lab, ctx):
                                                          r["action"] or "?", r["id"] or "?"))
     log("  expected evidence: events matching policy '%s' (and its -v2-<rule> variants)"
         % (policy.get("name") or lab["name"]))
+    if lab.get("enforce_policy_path"):
+        log("  note: two-phase lab - enforcement phase follows (policy %s + %s)"
+            % (os.path.basename(lab["enforce_policy_path"]), os.path.basename(lab["enforce_pod_path"])))
     if lab["tracing_path"] and os.path.isfile(lab["tracing_path"]):
         log("  note: raw tracingpolicy.yaml present — will be applied as fallback too")
 
@@ -1426,16 +1441,23 @@ def k8s_install_policy(lab, lr):
     (the approval gate)."""
     policy = lab["policy"] or {}
     names = policy.get("names") or ([policy.get("name")] if policy.get("name") else [lab["name"]])
+    return k8s_install_policy_file(lab["policy_path"], policy, names, lab.get("mode", "v2"), lr)
+
+
+def k8s_install_policy_file(path, policy, names, mode, lr):
+    """Apply a RuntimePolicy manifest via kubectl and poll the approval gate
+    (status.state == Applied for every name; v1 falls back to the sensor logs
+    because the CRD status stays empty on old CRS charts)."""
     log("")
-    log("installing policy via kubectl: %s (%s)" % (", ".join(names), lab["policy_path"]))
+    log("installing policy via kubectl: %s (%s)" % (", ".join(names), path))
 
     # deterministic: delete-then-re-add if already installed
-    st = k8s_get_runtimepolicy_state(names[0], lab.get("mode", "v2"))
+    st = k8s_get_runtimepolicy_state(names[0], mode)
     if st != "":
         log("  policy '%s' already installed - deleting then re-adding (deterministic)" % names[0])
-        k8s_delete_manifest(lab["policy_path"], lr)
+        k8s_delete_manifest(path, lr)
 
-    if not k8s_apply_manifest(lab["policy_path"], lr):
+    if not k8s_apply_manifest(path, lr):
         lr.note("policy not applied")
         return False
 
@@ -1446,12 +1468,12 @@ def k8s_install_policy(lab, lr):
     while time.time() < deadline and not interrupted():
         statuses = []
         for n in names:
-            statuses.append((n, k8s_get_runtimepolicy_state(n, lab.get("mode", "v2"))))
+            statuses.append((n, k8s_get_runtimepolicy_state(n, mode)))
         last = "; ".join("%s=%s" % (n, s) for n, s in statuses)
         if statuses and all(s == "Applied" for _, s in statuses):
             all_applied = True
             break
-        if lab.get("mode") == "v1" and statuses and all(s == "" for _, s in statuses):
+        if mode == "v1" and statuses and all(s == "" for _, s in statuses):
             if any(sensor_logs_mention(n) for n, _ in statuses):
                 log("  v1 approval confirmed in sensor logs (CRD status empty on old CRS)")
                 all_applied = True
@@ -1465,7 +1487,7 @@ def k8s_install_policy(lab, lr):
         log("  policy approved: %s" % last)
         # per-rule Not-applied warnings
         for n in names:
-            rules_out = k8s_get_runtimepolicy_rules(n, lab.get("mode", "v2"))
+            rules_out = k8s_get_runtimepolicy_rules(n, mode)
             for m in re.finditer(r'"state"\s*:\s*"Not-applied"', rules_out):
                 rid = "?"
                 mm = re.search(r'"id"\s*:\s*"([^"]+)"[^}]*?"state"\s*:\s*"Not-applied"', rules_out)
@@ -2041,6 +2063,92 @@ def k8s_cleanup_lab(lab, lr):
     k8s_delete_manifest(lab["pod_path"], lr)
 
 
+def run_enforce_phase(lab, ctx, lr):
+    """Phase B for two-phase labs (QCS-H02): enforcement policy + workload.
+
+    The audit phase already ran and produced evidence. Here we: remove the
+    audit pod + audit policy, show and apply the enforcement policy (waiting
+    for the approval gate), echo what the enforcement pod will do, run it,
+    gather evidence, print the summary, clean up, and mark the lab done."""
+    log("")
+    log("=" * 70)
+    log("going for the enforcement phase")
+    log("  removing audit policy + pod")
+    k8s_delete_manifest(lab["pod_path"], lr)
+    k8s_delete_manifest(lab["policy_path"], lr)
+
+    ef_pol = lab["enforce_policy"] or {}
+    names = ef_pol.get("names") or ([ef_pol.get("name")] if ef_pol.get("name") else [lab["name"] + "-enforce"])
+    mode = lab.get("mode", "v2")
+    log("")
+    log("applying the enforcement policy: %s" % ", ".join(names))
+    try:
+        txt = open(lab["enforce_policy_path"], encoding="utf-8", errors="replace").read()
+        log("  --- enforcement policy ---")
+        for line in txt.splitlines():
+            log("  " + line)
+        log("  --- end policy ---")
+    except OSError:
+        log("  (cannot read %s)" % lab["enforce_policy_path"])
+    if interrupted():
+        return False
+    if not k8s_install_policy_file(lab["enforce_policy_path"], ef_pol, names, mode, lr):
+        lr.note("enforcement policy not applied")
+        return False
+    log("  policy applied: %s" % ", ".join(names))
+
+    ef_pod = lab["enforce_pod"] or {}
+    log("")
+    log("what the enforcement pod will do:")
+    cmd = " ".join(str(c) for c in ef_pod.get("command") or [])
+    if cmd:
+        log("  %s" % trim_line(cmd))
+    else:
+        log("  (image entrypoint - no explicit command)")
+    ef_lab = {
+        "name": lab["name"] + "-enforce",
+        "mode": mode,
+        "policy": ef_pol,
+        "pod": ef_pod,
+        "policy_path": lab["enforce_policy_path"],
+        "pod_path": lab["enforce_pod_path"],
+    }
+    if CFG.backend != "k8s":
+        lr.note("enforcement phase requires the k8s backend")
+        log("[WARN] enforcement phase requires the k8s backend")
+        return False
+    log("  applying workload: %s" % lab["enforce_pod_path"])
+    k8s_apply_pod(ef_lab, lr)
+    if interrupted():
+        return False
+    log("")
+    log("waiting %ds for events to settle..." % CFG.settle)
+    sleep_check(CFG.settle)
+    log("grepping enforcement evidence (policy '%s')..." % (ef_pol.get("name") or lab["name"]))
+    evidence, ev_counts = grep_evidence(ef_lab, ctx, lr)
+    lr.state["enforce_evidence"] = len(evidence)
+    lr.state["enforce_policy_evidence"] = ev_counts.get("policy", 0)
+    lr.state["enforce_activity_evidence"] = ev_counts.get("activity", 0)
+    if evidence:
+        log("  enforcement evidence: %d matching event(s) (policy-name/rule-id: %d, activity/process_exec: %d)"
+            % (len(evidence), ev_counts.get("policy", 0), ev_counts.get("activity", 0)))
+        print_evidence(evidence)
+        joined = " ".join(evidence[:50]).lower()
+        if ("sigkill" in joined) or ("kill" in joined and "137" in joined) or ("status.*failure" in joined):
+            lr.state["enforcement_observed"] = True
+            log("  enforcement observed (SIGKILL / exit-137 style evidence)")
+    else:
+        lr.note("enforcement phase: no matching evidence (may be disproven)")
+        log("[WARN] enforcement phase: no matching evidence (may be disproven)")
+    log("")
+    log("cleanup: deleting enforcement pod + policy")
+    k8s_delete_manifest(lab["enforce_pod_path"], lr)
+    k8s_delete_manifest(lab["enforce_policy_path"], lr)
+    log("QCS-H02 hypothesis done (audit + enforcement phases complete)")
+    lr.state["two_phase"] = True
+    return True
+
+
 def run_lab(lab, idx, ctx):
     lr = LabResult(lab)
     t0 = time.time()
@@ -2099,7 +2207,10 @@ def run_lab(lab, idx, ctx):
             lr.verdict = "ABORTED"
             lr.note("interrupted after evidence collection")
             return lr
-        cleanup_lab(lab, ctx, lr)
+        if lab.get("enforce_policy_path") and CFG.backend == "k8s":
+            run_enforce_phase(lab, ctx, lr)
+        else:
+            cleanup_lab(lab, ctx, lr)
     except Abort:
         lr.verdict = "ABORTED"
         lr.note("aborted at prompt")

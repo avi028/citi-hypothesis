@@ -1,0 +1,66 @@
+# QCS-H02 — enforcement phase workload (k8s form of the old docker proof)
+#
+# Applied ONLY in the enforcement phase (after the audit pod + audit policy
+# are removed and the enforcement policy is applied). It attempts:
+#   1. exec of a dropped script staged inside the blocked dir
+#      -> v2 (policy-enforce.yaml drift-block-exec): SIGKILL at
+#         security_bprm_check; v1 has no exec-block (honest v1 gap)
+#   2. a write into /tmp/citi-h02-block/
+#      -> SIGKILL mid-write (both v1 and v2 block-write rules)
+# The write kill terminates the pod (exit 137) - that termination IS the
+# enforcement evidence.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h02
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: citi-h02-enforce-stage
+  namespace: citi-h02
+data:
+  drift.sh: |
+    #!/bin/sh
+    echo drift-enforce-ran
+    exit 0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h02-enforce
+  namespace: citi-h02
+  labels:
+    app: citi-h02-enforce
+spec:
+  restartPolicy: Never
+  containers:
+  - name: enforcer
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "== enforce: exec attempt =="
+      /tmp/citi-h02-block/drift.sh
+      echo "exec-rc=$?"
+      echo "== enforce: write attempt =="
+      echo evil > /tmp/citi-h02-block/evil.sh
+      echo "write-rc=$?"
+      sleep 3600
+    volumeMounts:
+    - name: staged-script
+      mountPath: /tmp/citi-h02-block/drift.sh
+      subPath: drift.sh
+      readOnly: true
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+  volumes:
+  - name: staged-script
+    configMap:
+      name: citi-h02-enforce-stage
+      defaultMode: 0755
