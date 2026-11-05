@@ -17,7 +17,7 @@ is stopped** (SIGKILL mid-write, pod exit 137). The caveat is
 exec/process base-policy, and the only v1 lever (`file-open` + `kill`)
 would kill any open of a file at that location — far too wide a scope.
 **v2 can stop the script**: its process rule (`drift-block-exec`) kills the
-exec at `security_bprm_check` before the script's payload runs.
+exec before the script's payload runs.
 
 ## What we did (k8s two-phase flow, `hypo-run.py`)
 
@@ -60,9 +60,6 @@ activity/process_exec).
 
 ## One thing to know
 
-- "Block" means the offending **process is terminated** (SIGKILL) at the
-  moment it touches the watched path — it is not a clean "permission
-  denied", the actor dies. That's the intended behavior for enforcement.
 - The **script-exec gap is v1-only**: v1 has no exec/process base-policy,
   and its only file-level lever (`file-open` + `kill`) would kill any open
   of a file in the watched directory — far too wide a scope. **v2 closes
@@ -100,7 +97,7 @@ process rule.
 
 // enforce (policy citi-h02-drift-block-write, action: kill) — v1 run
 //   write attempt -> killed: File event payload (SIGKILL), pod exit 137
-//   exec attempt  -> NOT blocked in v1: "Process ALLOWED - Regex match:
+//   exec attempt  -> NOT blocked in v1: "Process ALLOWED -
 //                    process='/tmp/citi-h02-block/drift.sh'" + "New process
 //                    added to tree: .../drift.sh" (the script ran)
 //   v2 (policy-enforce.yaml drift-block-exec): SIGKILL at
