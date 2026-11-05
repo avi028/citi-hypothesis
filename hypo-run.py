@@ -91,15 +91,14 @@ EXIT CODES
     from pod.yaml); this is weaker evidence and is flagged as such.
 11. Single instance: fcntl.flock on $RUN_DIR/hypo-run.lock (O_EXCL
     fallback elsewhere); a concurrent run fails fast.
-12. k8s backend (default when a cluster answers): EVERYTHING goes through the
-    Kubernetes REST API with stdlib only — kubeconfig parsing (client certs,
-    tokens), create-via-POST with PUT fallback on 409 (kubectl apply
-    semantics), RuntimePolicy CRD status polling as the approval gate
-    (state=Applied), workload apply/delete, pod status, and evidence read
-    from the sensor pod's logs. The in-pod log FILES are read through the
-    exec API using a minimal RFC6455 WebSocket client; the sensor SIGKILLs
-    `cat` of its own logs (exit 137), so the evidence path falls back to the
-    pod logs endpoint, which carries the event payloads.
+12. k8s backend (default when a cluster answers): uses `kubectl` for
+    apply/delete of policy.yaml and pod.yaml manifests, `kubectl get
+    runtimepolicy -o jsonpath` for the approval gate (state=Applied) and
+    Not-applied rule states, and `kubectl exec ... cat <logfile>` /
+    `kubectl logs` for evidence. Parsing, selection, gating and verdicts
+    stay in-script. The sensor SIGKILLs `cat` of its own logs (exit 137), so
+    the evidence path falls back to `kubectl logs`, which carries the event
+    payloads.
 13. YAML: PyYAML when present, else a built-in parser (MiniYaml) covering the
     manifest subset (maps, sequences, flow collections, block scalars,
     comments, quotes, unindented heredoc bodies). Manifests are applied from
@@ -109,7 +108,6 @@ EXIT CODES
 """
 
 import argparse
-import base64
 import json
 import os
 import platform
@@ -117,14 +115,10 @@ import re
 import shutil
 import signal
 import socket
-import ssl
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections import OrderedDict
 from types import SimpleNamespace
 
@@ -776,351 +770,69 @@ CFG = build_cfg()
 # phase 1: preflight
 # --------------------------------------------------------------------------
 
-class K8sError(Exception):
-    pass
-
-
 # --------------------------------------------------------------------------
-# k8s client (pure stdlib: kubeconfig -> REST over TLS). No external CLI
-# tools are invoked — everything the flow needs is done through the API.
+# k8s helpers (kubectl CLI): apply/delete manifests, exec into pods for the
+# sensor logs. hypo-run still does the parsing, the approval gate and the
+# verdicts itself; kubectl is simply the interface to the cluster.
 # --------------------------------------------------------------------------
-
-# kind -> (api_group, api_version, resource, namespaced)
-KIND_MAP = {
-    "Pod": ("", "v1", "pods", True),
-    "Namespace": ("", "v1", "namespaces", False),
-    "ServiceAccount": ("", "v1", "serviceaccounts", True),
-    "Service": ("", "v1", "services", True),
-    "ConfigMap": ("", "v1", "configmaps", True),
-    "Secret": ("", "v1", "secrets", True),
-    "LimitRange": ("", "v1", "limitranges", True),
-    "ResourceQuota": ("", "v1", "resourcequotas", True),
-    "PersistentVolumeClaim": ("", "v1", "persistentvolumeclaims", True),
-    "Endpoints": ("", "v1", "endpoints", True),
-    "Deployment": ("apps", "v1", "deployments", True),
-    "DaemonSet": ("apps", "v1", "daemonsets", True),
-    "StatefulSet": ("apps", "v1", "statefulsets", True),
-    "ReplicaSet": ("apps", "v1", "replicasets", True),
-    "Job": ("batch", "v1", "jobs", True),
-    "CronJob": ("batch", "v1", "cronjobs", True),
-    "NetworkPolicy": ("networking.k8s.io", "v1", "networkpolicies", True),
-    "Ingress": ("networking.k8s.io", "v1", "ingresses", True),
-    "Role": ("rbac.authorization.k8s.io", "v1", "roles", True),
-    "RoleBinding": ("rbac.authorization.k8s.io", "v1", "rolebindings", True),
-    "ClusterRole": ("rbac.authorization.k8s.io", "v1", "clusterroles", False),
-    "ClusterRoleBinding": ("rbac.authorization.k8s.io", "v1", "clusterrolebindings", False),
-    "PodDisruptionBudget": ("policy", "v1", "poddisruptionbudgets", True),
-    "RuntimePolicy": ("qualys.com", "v2", "runtimepolicies", False),
-}
-
-
-class K8s:
-    def __init__(self, cfg=None):
-        self.cfg = cfg or CFG
-        self.server = None
-        self.token = None
-        self.client_cert = None
-        self.client_key = None
-        self.ca = None
-        self.insecure = False
-        self.namespace_default = "default"
-        self._tmpfiles = []
-        self._load_config()
-
-    def _load_config(self):
-        path = os.environ.get("KUBECONFIG") or os.path.expanduser("~/.kube/config")
-        if not os.path.isfile(path):
-            raise K8sError("no kubeconfig at %s" % path)
-        text = open(path, encoding="utf-8", errors="replace").read()
-        cfg = yaml_load(text) or {}
-        clusters = {c.get("name"): c for c in (cfg.get("clusters") or []) if isinstance(c, dict)}
-        users = {u.get("name"): u for u in (cfg.get("users") or []) if isinstance(u, dict)}
-        contexts = {c.get("name"): c for c in (cfg.get("contexts") or []) if isinstance(c, dict)}
-        cur = cfg.get("current-context")
-        ctx = contexts.get(cur, {}) if cur else (next(iter(contexts.values()), {}) if contexts else {})
-        cname = ((ctx.get("context") or {}).get("cluster") or "").strip()
-        uname = ((ctx.get("context") or {}).get("user") or "").strip()
-        self.namespace_default = (ctx.get("context") or {}).get("namespace") or "default"
-        cluster = (clusters.get(cname) or {}).get("cluster") or {}
-        user = (users.get(uname) or {}).get("user") or {}
-        self.server = (cluster.get("server") or "").rstrip("/")
-        self.insecure = bool(cluster.get("insecure-skip-tls-verify"))
-        if cluster.get("certificate-authority"):
-            self.ca = cluster["certificate-authority"]
-        if cluster.get("certificate-authority-data"):
-            self.ca = self._tmp_b64("ca", cluster["certificate-authority-data"])
-        if user.get("token"):
-            self.token = user["token"]
-        elif user.get("tokenFile"):
-            try:
-                self.token = open(os.path.expanduser(user["tokenFile"])).read().strip()
-            except OSError:
-                pass
-        if user.get("client-certificate-data"):
-            self.client_cert = self._tmp_b64("cert", user["client-certificate-data"])
-        if user.get("client-key-data"):
-            self.client_key = self._tmp_b64("key", user["client-key-data"])
-        if user.get("client-certificate"):
-            self.client_cert = user["client-certificate"]
-        if user.get("client-key"):
-            self.client_key = user["client-key"]
-        if not self.server:
-            raise K8sError("kubeconfig has no cluster server")
-
-    def _tmp_b64(self, name, b64data):
-        fd, path = tempfile.mkstemp(prefix="hypo-k8s-%s-" % name)
-        try:
-            os.write(fd, base64.b64decode(b64data))
-        finally:
-            os.close(fd)
-        self._tmpfiles.append(path)
-        return path
-
-    def _ssl_ctx(self):
-        if self.insecure:
-            return ssl._create_unverified_context()
-        ctx = ssl.create_default_context()
-        if self.ca:
-            ctx.load_verify_locations(self.ca)
-        if self.client_cert and self.client_key:
-            ctx.load_cert_chain(self.client_cert, self.client_key)
-        return ctx
-
-    def request(self, method, path, body=None, timeout=30):
-        """Returns (status, parsed_json_or_text)."""
-        url = self.server + path
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Accept", "application/json, text/plain, */*")
-        if self.token:
-            req.add_header("Authorization", "Bearer " + self.token)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout, context=self._ssl_ctx()) as r:
-                raw = r.read()
-                if not raw:
-                    return r.status, None
-                try:
-                    return r.status, json.loads(raw)
-                except ValueError:
-                    return r.status, raw.decode("utf-8", errors="replace")
-        except urllib.error.HTTPError as e:
-            raw = e.read()
-            try:
-                return e.code, json.loads(raw)
-            except ValueError:
-                return e.code, raw.decode("utf-8", errors="replace")
-        except (urllib.error.URLError, socket.error, ssl.SSLError) as e:
-            raise K8sError("k8s api error (%s %s): %s" % (method, path, e))
-
-    def _res_path(self, kind, name, namespace=None):
-        info = KIND_MAP.get(kind)
-        if not info:
-            raise K8sError("unsupported kind for API apply: %s" % kind)
-        group, version, resource, namespaced = info
-        base = "/api/%s" % version if group == "" else "/apis/%s/%s" % (group, version)
-        if namespaced:
-            ns = namespace or self.namespace_default
-            return "%s/namespaces/%s/%s/%s" % (base, ns, resource, name)
-        return "%s/%s/%s" % (base, resource, name)
-
-    def _res_collection(self, kind, namespace=None):
-        info = KIND_MAP.get(kind)
-        if not info:
-            raise K8sError("unsupported kind for API apply: %s" % kind)
-        group, version, resource, namespaced = info
-        base = "/api/%s" % version if group == "" else "/apis/%s/%s" % (group, version)
-        if namespaced:
-            ns = namespace or self.namespace_default
-            return "%s/namespaces/%s/%s" % (base, ns, resource)
-        return "%s/%s" % (base, resource)
-
-    # ---- policy (RuntimePolicy CRD) --------------------------------------
-    def apply_runtime_policy(self, doc):
-        name = ((doc.get("metadata") or {}).get("name") or "").strip()
-        if not name:
-            raise K8sError("policy doc has no metadata.name")
-        # create via POST; if it already exists (409) replace via PUT
-        st, body = self.request("POST", self._res_collection("RuntimePolicy"), body=doc)
-        if st == 409:
-            st, body = self.request("PUT", self._res_path("RuntimePolicy", name), body=doc)
-        return st, body
-
-    def get_runtime_policy(self, name):
-        return self.request("GET", self._res_path("RuntimePolicy", name))
-
-    def delete_runtime_policy(self, name):
-        return self.request("DELETE", self._res_path("RuntimePolicy", name))
-
-    # ---- generic workload/other objects ------------------------------------
-    def apply_object(self, doc):
-        kind = doc.get("kind") or ""
-        name = ((doc.get("metadata") or {}).get("name") or "").strip()
-        ns = ((doc.get("metadata") or {}).get("namespace")) or None
-        if not name:
-            raise K8sError("%s doc has no metadata.name" % kind)
-        st, body = self.request("POST", self._res_collection(kind, ns), body=doc)
-        if st == 409:
-            st, body = self.request("PUT", self._res_path(kind, name, ns), body=doc)
-        return st, body
-
-    def get_object(self, kind, name, namespace=None):
-        try:
-            return self.request("GET", self._res_path(kind, name, namespace))
-        except K8sError:
-            return 0, None
-
-    def delete_object(self, kind, name, namespace=None):
-        return self.request("DELETE", self._res_path(kind, name, namespace))
-
-    # ---- pods --------------------------------------------------------------
-    def list_pods(self, namespace="qualys", name_prefix=None):
-        base = "/api/v1/namespaces/%s/pods" % namespace
-        st, body = self.request("GET", base)
-        if st != 200 or not isinstance(body, dict):
-            return []
-        return [p.get("metadata", {}).get("name")
-                for p in (body.get("items") or [])
-                if not name_prefix or (p.get("metadata", {}).get("name") or "").startswith(name_prefix)]
-
-    def pod_status(self, name, namespace="qualys"):
-        st, body = self.get_object("Pod", name, namespace)
-        if st != 200 or not isinstance(body, dict):
-            return ("NotFound", "")
-        status = body.get("status") or {}
-        phase = status.get("phase", "")
-        reason = ""
-        for cs in (status.get("containerStatuses") or []):
-            w = (cs.get("state") or {}).get("waiting") or {}
-            if w.get("reason"):
-                reason = w["reason"]
-        return (phase, reason)
-
-    def pod_logs(self, name, namespace="qualys", tail=20000):
-        path = "/api/v1/namespaces/%s/pods/%s/log?tailLines=%d&timestamps=true" % (namespace, name, tail)
-        st, body = self.request("GET", path)
-        if st != 200:
-            return ""
-        return body if isinstance(body, str) else str(body)
-
-    def pod_container(self, name, namespace="qualys"):
-        st, body = self.get_object("Pod", name, namespace)
-        if st == 200 and isinstance(body, dict):
-            for c in (body.get("spec") or {}).get("containers") or []:
-                if c.get("name"):
-                    return c["name"]
-        return None
-
-    def exec_cat(self, pod, file_path, namespace="qualys", timeout=40):
-        """Read a file inside the pod via the exec API (WebSocket, stdlib-only).
-        Returns the file's stdout content (or '' on failure)."""
-        import struct
-
-        container = self.pod_container(pod, namespace)
-        parts = [("command", "cat"), ("command", file_path),
-                 ("stdout", "true"), ("stderr", "true"), ("tty", "false")]
-        if container:
-            parts.append(("container", container))
-        qs = "&".join("%s=%s" % (k, urllib.parse.quote(str(v))) for k, v in parts)
-        path = "/api/v1/namespaces/%s/pods/%s/exec?%s" % (namespace, pod, qs)
-
-        host = self.server.split("://")[1]
-        if ":" in host:
-            hname, hport = host.rsplit(":", 1)
-            hport = int(hport)
-        else:
-            hname, hport = host, 443
-        sock = socket.create_connection((hname, hport), timeout=timeout)
-        try:
-            ssock = self._ssl_ctx().wrap_socket(sock, server_hostname=hname)
-            key = base64.b64encode(os.urandom(16)).decode()
-            req = ("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\n"
-                   "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
-                   "Sec-WebSocket-Version: 13\r\n"
-                   "Sec-WebSocket-Protocol: v4.channel.k8s.io\r\n" % (path, host, key))
-            if self.token:
-                req += "Authorization: Bearer %s\r\n" % self.token
-            req += "\r\n"
-            ssock.sendall(req.encode())
-            resp = b""
-            while b"\r\n\r\n" not in resp:
-                chunk = ssock.recv(4096)
-                if not chunk:
-                    break
-                resp += chunk
-            head, _, rest = resp.partition(b"\r\n\r\n")
-            head = head.decode("utf-8", errors="replace")
-            if not head.startswith("HTTP/1.1 101"):
-                raise K8sError("exec upgrade failed: %s" % head.split("\r\n")[0])
-
-            # frames may already be buffered after the headers (recv race)
-            buf = rest
-
-            def read_exact(n):
-                nonlocal buf
-                while len(buf) < n:
-                    part = ssock.recv(max(4096, n - len(buf)))
-                    if not part:
-                        break
-                    buf += part
-                out, buf = buf[:n], buf[n:]
-                return out
-
-            out = {1: b"", 2: b"", 3: b""}
-            while True:
-                hdr = read_exact(2)
-                if len(hdr) < 2:
-                    break
-                b1, b2 = hdr[0], hdr[1]
-                opcode = b1 & 0x0F
-                length = b2 & 0x7F
-                if length == 126:
-                    length = struct.unpack(">H", read_exact(2))[0]
-                elif length == 127:
-                    length = struct.unpack(">Q", read_exact(8))[0]
-                payload = read_exact(length)
-                if opcode == 8:  # close
-                    break
-                if opcode in (1, 2, 0) and payload:  # data / continuation
-                    ch = payload[0]
-                    if ch in out:
-                        out[ch] += payload[1:]
-            ssock.close()
-            text = out[1].decode("utf-8", errors="replace")
-            err = out[2].decode("utf-8", errors="replace")
-            err3 = out[3].decode("utf-8", errors="replace")
-            if not text:
-                raise K8sError("exec cat %s: no stdout (stderr: %r, error: %r)"
-                               % (file_path, err[:200], err3[:200]))
-            return text
-        finally:
-            try:
-                sock.close()
-            except OSError:
-                pass
-
-
-# singleton helpers ---------------------------------------------------------
-
-def k8s_client():
-    if not getattr(CFG, "_k8s", None):
-        CFG._k8s = K8s()
-    return CFG._k8s
-
 
 def detect_backend():
-    """auto: k8s when the cluster API answers; else operator (standalone)."""
+    """auto: k8s when kubectl reaches a cluster; else operator (standalone)."""
     if CFG.backend != "auto":
         return CFG.backend
-    try:
-        k8s_client()
+    rc, _, _ = run(["kubectl", "get", "nodes", "--request-timeout=10s"], quiet=True)
+    if rc == 0:
         return "k8s"
-    except Exception:
-        pass
     if os.path.isfile(CFG.ebpf_operator) and os.access(CFG.ebpf_operator, os.X_OK):
         return "operator"
     return "operator"
 
+
+def k8s_apply_manifest(path, lr=None):
+    rc, out, err = run(["kubectl", "apply", "-f", path], timeout=CFG.timeout_cmd * 2)
+    if rc != 0:
+        msg = trim_line(err or out)
+        if lr:
+            lr.note("kubectl apply %s failed: %s" % (path, msg))
+        log("[WARN] kubectl apply %s failed: %s" % (path, msg))
+        return False
+    log("  applied: %s" % path)
+    return True
+
+
+def k8s_delete_manifest(path, lr=None):
+    rc, out, err = run(["kubectl", "delete", "-f", path, "--ignore-not-found=true"],
+                       timeout=CFG.timeout_cmd * 2)
+    if rc != 0:
+        msg = trim_line(err or out)
+        if lr:
+            lr.note("kubectl delete %s failed (benign if gone): %s" % (path, msg))
+        log("[WARN] kubectl delete %s: %s" % (path, msg))
+    else:
+        log("  deleted: %s" % path)
+
+
+def k8s_get_runtimepolicy_state(name):
+    rc, out, _ = run(["kubectl", "get", "runtimepolicy", name, "-o",
+                      "jsonpath={.status.state}", "--request-timeout=10s"], quiet=True)
+    return out.strip()
+
+
+def k8s_get_runtimepolicy_rules(name):
+    rc, out, _ = run(["kubectl", "get", "runtimepolicy", name, "-o",
+                      "jsonpath={.status.rules}", "--request-timeout=10s"], quiet=True)
+    return out
+
+
+def k8s_sensor_pods():
+    rc, out, _ = run(["kubectl", "get", "pods", "-n", "qualys", "--no-headers",
+                      "-o", "custom-columns=:metadata.name", "--request-timeout=10s"], quiet=True)
+    return [l.strip() for l in out.splitlines() if "qualys-runtime-sensor" in l]
+
+
+# --------------------------------------------------------------------------
+# phase 1: preflight
+# --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
 # phase 1: preflight
@@ -1148,8 +860,7 @@ class Preflight:
 def imds_probe():
     """EC2 IMDS must not be an error. Returns instance-id or None."""
     try:
-        import urllib.request
-
+        
         req = urllib.request.Request(
             "http://169.254.169.254/latest/meta-data/instance-id",
             headers={"User-Agent": "hypo-run"},
@@ -1402,27 +1113,23 @@ def preflight(labs, dry_run=False):
 
     # 10. k8s backend specifics
     if CFG.backend == "k8s":
-        try:
-            k8s = k8s_client()
-            pf.add("OK", "k8s API reachable (%s)" % k8s.server)
-        except K8sError as e:
-            pf.add("FAIL" if not dry_run else "WARN", "k8s API not reachable", str(e))
-        try:
-            st, body = k8s.request("GET", "/apis/qualys.com/v2/runtimepolicies")
-            if st == 200:
-                pf.add("OK", "runtimepolicy CRD present (%d policy objects)" % len((body or {}).get("items") or []))
-            else:
-                pf.add("WARN", "runtimepolicy CRD query returned %d" % st)
-        except Exception as e:
-            pf.add("WARN", "runtimepolicy CRD query failed", str(e))
-        try:
-            pods = k8s.list_pods(namespace="qualys", name_prefix="qualys-runtime-sensor")
-            if pods:
-                pf.add("OK", "sensor pod(s) in qualys ns: %s" % ", ".join(pods))
-            else:
-                pf.add("WARN", "no qualys-runtime-sensor pod found in namespace qualys")
-        except Exception as e:
-            pf.add("WARN", "cannot list sensor pod", str(e))
+        rc, out, err = run(["kubectl", "get", "nodes", "--request-timeout=10s"], quiet=True)
+        if rc == 0:
+            pf.add("OK", "kubectl cluster reachable")
+        else:
+            pf.add("FAIL" if not dry_run else "WARN", "kubectl cluster not reachable",
+                   trim_line(err or out))
+        rc, out, _ = run(["kubectl", "get", "crd", "runtimepolicies.qualys.com",
+                          "--request-timeout=10s"], quiet=True)
+        if rc == 0:
+            pf.add("OK", "runtimepolicy CRD present")
+        else:
+            pf.add("WARN", "runtimepolicy CRD missing", "kubectl get crd failed")
+        pods = k8s_sensor_pods()
+        if pods:
+            pf.add("OK", "sensor pod(s) in qualys ns: %s" % ", ".join(pods))
+        else:
+            pf.add("WARN", "no qualys-runtime-sensor pod found in namespace qualys")
 
     pf.facts = facts
     return pf
@@ -1810,15 +1517,9 @@ def policy_installed_name(policy):
 def list_installed_policies():
     """Names of installed policies (operator list or k8s API list)."""
     if CFG.backend == "k8s":
-        try:
-            k8s = k8s_client()
-            st, body = k8s.request("GET", "/apis/qualys.com/v2/runtimepolicies")
-            if st == 200 and isinstance(body, dict):
-                return "\n".join(i.get("metadata", {}).get("name", "")
-                                 for i in (body.get("items") or []) if isinstance(i, dict))
-            return ""
-        except Exception:
-            return ""
+        rc, out, _ = run(["kubectl", "get", "runtimepolicy", "-o", "name",
+                          "--request-timeout=10s"], quiet=True)
+        return "\n".join(l.split("/", 1)[-1] for l in out.splitlines() if l.strip())
     rc, out, _ = run([CFG.ebpf_operator, "tracingpolicy", "list"], quiet=True)
     if rc != 0:
         return ""
@@ -1833,88 +1534,52 @@ def install_policy(lab, ctx, lr):
 
 
 def k8s_install_policy(lab, lr):
-    """Apply policy.yaml (RuntimePolicy CRD) through the k8s API and poll the
-    CRD status until 'Applied' — this is the approval gate."""
+    """Apply policy.yaml via kubectl and poll the CRD status until 'Applied'
+    (the approval gate)."""
     policy = lab["policy"] or {}
     names = policy.get("names") or ([policy.get("name")] if policy.get("name") else [lab["name"]])
     log("")
-    log("installing policy via k8s API: %s (%s)" % (", ".join(names), lab["policy_path"]))
-    try:
-        k8s = k8s_client()
-    except K8sError as e:
-        lr.note("k8s client unavailable: %s" % e)
-        return False
+    log("installing policy via kubectl: %s (%s)" % (", ".join(names), lab["policy_path"]))
 
     # deterministic: delete-then-re-add if already installed
-    for n in names:
-        st, _ = k8s.get_runtime_policy(n)
-        if st == 200:
-            log("  policy '%s' already installed — deleting then re-adding (deterministic)" % n)
-            k8s.delete_runtime_policy(n)
-        elif st == 404:
-            pass
-        else:
-            lr.note("unexpected status %d querying policy %s" % (st, n))
+    st = k8s_get_runtimepolicy_state(names[0])
+    if st != "":
+        log("  policy '%s' already installed - deleting then re-adding (deterministic)" % names[0])
+        k8s_delete_manifest(lab["policy_path"], lr)
 
-    docs = [d for d in yaml_load_multi(open(lab["policy_path"], encoding="utf-8", errors="replace").read())
-            if isinstance(d, dict)]
-    if not docs:
-        lr.note("policy file parsed to nothing")
-        return False
-    applied_any = False
-    for doc in docs:
-        kind = doc.get("kind") or ""
-        if kind in ("RuntimePolicy", "") and (doc.get("spec") or {}).get("rules") is not None:
-            try:
-                st, body = k8s.apply_runtime_policy(doc)
-            except K8sError as e:
-                lr.note("apply failed: %s" % e)
-                log("[WARN] %s" % e)
-                continue
-            if st in (200, 201):
-                applied_any = True
-                log("  applied policy doc %s (status %d)" % ((doc.get("metadata") or {}).get("name") or "?", st))
-            else:
-                msg = body if isinstance(body, str) else json.dumps(body)[:200]
-                lr.note("apply returned %d: %s" % (st, msg))
-                log("[WARN] apply returned %d: %s" % (st, trim_line(msg)))
-    if not applied_any:
-        lr.note("no policy doc could be applied")
+    if not k8s_apply_manifest(lab["policy_path"], lr):
+        lr.note("policy not applied")
         return False
 
-    # gate: poll CRD status until all policy names report state=Applied
+    # gate: poll status.state == Applied for every policy name
     deadline = time.time() + CFG.timeout_poll
     all_applied = False
     last = ""
     while time.time() < deadline and not interrupted():
         statuses = []
         for n in names:
-            st, body = k8s.get_runtime_policy(n)
-            if st != 200 or not isinstance(body, dict):
-                statuses.append((n, "missing", []))
-                continue
-            state = ((body.get("status") or {}).get("state") or "")
-            rules = (body.get("status") or {}).get("rules") or []
-            statuses.append((n, state, rules))
-        last = "; ".join("%s=%s" % (s[0], s[1]) for s in statuses)
-        if all(len(s) >= 2 and s[1] == "Applied" for s in statuses):
+            statuses.append((n, k8s_get_runtimepolicy_state(n)))
+        last = "; ".join("%s=%s" % (n, s) for n, s in statuses)
+        if statuses and all(s == "Applied" for _, s in statuses):
             all_applied = True
             break
         sleep_check(2)
     if interrupted():
         lr.left_installed.extend(names)
-        lr.note("interrupted during policy install — leaving policy installed")
+        lr.note("interrupted during policy install - leaving policy installed")
         return False
     if all_applied:
-        lr.state["policy_installed"] = True
         log("  policy approved: %s" % last)
         # per-rule Not-applied warnings
-        for n, state, rules in statuses:
-            for r in rules or []:
-                if (r.get("state") or "") == "Not-applied":
-                    rid = r.get("id") or r.get("name") or "?"
-                    lr.not_applied.append((rid, "translator marked rule Not-applied"))
-                    log("[WARN] rule '%s' will never fire: Not-applied" % rid)
+        for n in names:
+            rules_out = k8s_get_runtimepolicy_rules(n)
+            for m in re.finditer(r'"state"\s*:\s*"Not-applied"', rules_out):
+                rid = "?"
+                mm = re.search(r'"id"\s*:\s*"([^"]+)"[^}]*?"state"\s*:\s*"Not-applied"', rules_out)
+                if mm:
+                    rid = mm.group(1)
+                lr.not_applied.append((rid, "translator marked rule Not-applied"))
+                log("[WARN] rule '%s' will never fire: Not-applied" % rid)
         warns = not_applied_warnings(policy, "")
         for rid, why in warns:
             if not any(a == rid for a, _ in lr.not_applied):
@@ -2077,50 +1742,12 @@ def apply_pod(lab, ctx, lr):
 
 
 def k8s_apply_pod(lab, lr):
-    """Apply every object in pod.yaml through the k8s REST API."""
-    log("  using k8s API (no kubectl)")
-    try:
-        k8s = k8s_client()
-    except K8sError as e:
-        lr.note("k8s client unavailable: %s" % e)
-        log("[WARN] %s" % e)
-        return
-    try:
-        docs = [d for d in yaml_load_multi(open(lab["pod_path"], encoding="utf-8", errors="replace").read())
-                if isinstance(d, dict)]
-    except OSError as e:
-        lr.note("cannot read pod.yaml: %s" % e)
-        return
-    applied_any = False
-    for doc in docs:
-        kind = doc.get("kind") or ""
-        if kind in ("RuntimePolicy", ""):
-            continue  # policies are handled by install_policy
-        name = ((doc.get("metadata") or {}).get("name") or "").strip()
-        if not name:
-            continue
-        # deterministic: delete existing object first
-        st, _ = k8s.get_object(kind, name, ((doc.get("metadata") or {}).get("namespace")) or None)
-        if st == 200:
-            log("  object %s/%s exists - deleting first (deterministic)" % (kind, name))
-            k8s.delete_object(kind, name, ((doc.get("metadata") or {}).get("namespace")) or None)
-        try:
-            st, body = k8s.apply_object(doc)
-        except K8sError as e:
-            lr.note("apply %s/%s failed: %s" % (kind, name, e))
-            log("[WARN] apply %s/%s failed: %s" % (kind, name, e))
-            continue
-        if st in (200, 201):
-            applied_any = True
-            log("  applied %s/%s (status %d)" % (kind, name, st))
-        else:
-            msg = body if isinstance(body, str) else json.dumps(body)[:200]
-            lr.note("apply %s/%s returned %d: %s" % (kind, name, st, trim_line(msg)))
-            log("[WARN] apply %s/%s returned %d: %s" % (kind, name, st, trim_line(msg)))
-    if applied_any:
+    """Apply pod.yaml via kubectl; deterministic delete-then-apply; wait for
+    the workload to actually run before evidence collection."""
+    log("  using kubectl apply (deterministic delete-then-apply)")
+    k8s_delete_manifest(lab["pod_path"], lr)
+    if k8s_apply_manifest(lab["pod_path"], lr):
         lr.state["pod_applied"] = True
-    # wait for the workload to actually run (image pulls take time) before
-    # settling/grepping - otherwise the activity may not have happened yet
     wait_budget = min(180, max(CFG.timeout_poll, 60))
     statuses = k8s_wait_pod_status(lab, wait_s=wait_budget)
     if statuses:
@@ -2139,8 +1766,7 @@ def k8s_apply_pod(lab, lr):
 
 
 def k8s_wait_pod_status(lab, wait_s=60):
-    """Finite wait for workload pod statuses via the API."""
-    k8s = k8s_client()
+    """Finite wait for workload pod statuses via kubectl."""
     pods = []
     try:
         for d in yaml_load_multi(open(lab["pod_path"], encoding="utf-8", errors="replace").read()):
@@ -2148,20 +1774,34 @@ def k8s_wait_pod_status(lab, wait_s=60):
                 continue
             md = d.get("metadata") or {}
             kind = d.get("kind")
-            ns = md.get("namespace") or k8s.namespace_default
-            if kind == "Pod" and md.get("name"):
-                pods.append((md["name"], ns))
-            elif kind in ("Job", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "CronJob") and md.get("name"):
-                pods.append((md["name"], ns))
+            ns = md.get("namespace") or "default"
+            name = md.get("name") or ""
+            if kind in ("Pod", "Job", "Deployment", "StatefulSet", "DaemonSet",
+                        "ReplicaSet", "CronJob") and name:
+                pods.append((kind, name, ns))
     except OSError:
         pass
     statuses = []
     deadline = time.time() + wait_s
     while time.time() < deadline and not interrupted():
         statuses = []
-        for name, ns in pods:
-            phase, reason = k8s.pod_status(name, ns)
-            statuses.append((name, reason or phase))
+        for kind, name, ns in pods:
+            if kind == "Pod":
+                rc, out, _ = run(["kubectl", "get", "pod", name, "-n", ns, "-o",
+                                  "jsonpath={.status.phase}|{.status.containerStatuses[0].state.waiting.reason}",
+                                  "--request-timeout=10s"], quiet=True)
+                phase, _, reason = out.strip().partition("|")
+                statuses.append((name, reason or phase))
+            else:
+                rc, out, _ = run(["kubectl", "get", "pods", "-n", ns, "--no-headers",
+                                  "-o", "custom-columns=:metadata.name", "--request-timeout=10s"], quiet=True)
+                names = [l.strip() for l in out.splitlines() if l.strip().startswith(name + "-")]
+                for pn in names or [name + "-?"]:
+                    rc2, out2, _ = run(["kubectl", "get", "pod", pn, "-n", ns, "-o",
+                                        "jsonpath={.status.phase}|{.status.containerStatuses[0].state.waiting.reason}",
+                                        "--request-timeout=10s"], quiet=True)
+                    phase, _, reason = out2.strip().partition("|")
+                    statuses.append((pn, reason or phase))
         if statuses and all(s in ("Running", "Succeeded", "Completed") for _, s in statuses):
             break
         if any(s in ("ImagePullBackOff", "ErrImagePull", "CrashLoopBackOff") for _, s in statuses):
@@ -2314,16 +1954,10 @@ def dedupe_evidence(lines):
 def k8s_sensor_evidence(variants_l, rule_ids):
     """Evidence from the qualys-runtime-sensor pod.
 
-    The event payloads are written to log FILES inside the pod (runtime_sensor.log
-    / ebpfAgentLogFile.log) and POSTed to the gateway - stdout carries only
-    startup noise. Files are read via the exec API (stdlib WebSocket client).
-    """
-    try:
-        k8s = k8s_client()
-        pods = k8s.list_pods(namespace="qualys", name_prefix="qualys-runtime-sensor")
-    except Exception as e:
-        log("[WARN] cannot read sensor pod logs: %s" % e)
-        return []
+    The event payloads live in log FILES inside the pod (and in its stdout).
+    Read them with kubectl exec cat (with kubectl logs as fallback - the
+    sensor may SIGKILL the cat, exit 137)."""
+    pods = k8s_sensor_pods()
     if not pods:
         log("[WARN] no qualys-runtime-sensor pod found in namespace qualys")
         return []
@@ -2338,17 +1972,18 @@ def k8s_sensor_evidence(variants_l, rule_ids):
             if interrupted():
                 return evidence
             logtxt = ""
-            for attempt in (1, 2):  # exec streams can be transiently dropped
-                try:
-                    logtxt = k8s.exec_cat(pod, f, namespace="qualys")
+            for attempt in (1, 2):
+                rc, out, err = run(["kubectl", "exec", "-n", "qualys", pod, "--", "cat", f],
+                                   timeout=CFG.timeout_cmd * 2, quiet=True)
+                if rc == 0 and out:
+                    logtxt = out
                     break
-                except Exception as e:
-                    log("[WARN] exec cat %s (attempt %d) failed: %s" % (f, attempt, e))
-                    if attempt == 1:
-                        sleep_check(1)
+                log("[WARN] kubectl exec cat %s (attempt %d) failed: %s"
+                    % (f, attempt, trim_line(err or out)))
+                sleep_check(1)
             if not logtxt:
-                # fallback: stdout logs (rarely carries payloads, but try)
-                logtxt = k8s.pod_logs(pod, namespace="qualys", tail=5000)
+                rc, out, _ = run(["kubectl", "logs", "-n", "qualys", pod, "--tail=5000"], quiet=True)
+                logtxt = out
             if not logtxt:
                 continue
             log("  sensor log %s: %d lines" % (f, len(logtxt.splitlines())))
@@ -2455,43 +2090,11 @@ def cleanup_lab(lab, ctx, lr):
 
 
 def k8s_cleanup_lab(lab, lr):
-    try:
-        k8s = k8s_client()
-    except K8sError as e:
-        lr.note("cleanup skipped (k8s client unavailable): %s" % e)
-        return
-    # delete policies
-    for n in (lab["policy"] or {}).get("names") or [(lab["policy"] or {}).get("name") or lab["name"]]:
-        st, _ = k8s.delete_runtime_policy(n)
-        if st in (200, 202, 404):
-            log("  policy %s deleted" % n)
-        else:
-            lr.note("policy %s delete returned %d (benign if already gone)" % (n, st))
-            log("[WARN] policy %s delete returned %d" % (n, st))
-    # delete workload objects from pod.yaml
-    try:
-        docs = [d for d in yaml_load_multi(open(lab["pod_path"], encoding="utf-8", errors="replace").read())
-                if isinstance(d, dict)]
-    except OSError:
-        docs = []
-    for doc in docs:
-        kind = doc.get("kind") or ""
-        if kind in ("RuntimePolicy", ""):
-            continue
-        name = ((doc.get("metadata") or {}).get("name") or "").strip()
-        ns = ((doc.get("metadata") or {}).get("namespace")) or None
-        if not name:
-            continue
-        try:
-            st, _ = k8s.delete_object(kind, name, ns)
-        except K8sError as e:
-            lr.note("delete %s/%s failed: %s" % (kind, name, e))
-            continue
-        if st in (200, 202, 404):
-            log("  %s/%s deleted" % (kind, name))
-        else:
-            lr.note("delete %s/%s returned %d" % (kind, name, st))
-            log("[WARN] delete %s/%s returned %d" % (kind, name, st))
+    log("  cleanup: deleting policy + pod")
+    k8s_delete_manifest(lab["policy_path"], lr)
+    if lab["tracing_path"] and os.path.isfile(lab["tracing_path"]):
+        k8s_delete_manifest(lab["tracing_path"], lr)
+    k8s_delete_manifest(lab["pod_path"], lr)
 
 
 def run_lab(lab, idx, ctx):

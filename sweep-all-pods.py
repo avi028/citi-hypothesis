@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Sweep: apply every QCS-* lab's pod.yaml via hypo-run's k8s client, record
-the workload status, then clean up. No policies are touched."""
-import importlib.util
+"""Sweep: apply every QCS-* lab's pod.yaml via kubectl, record the workload
+status, then clean up. No policies are touched."""
 import os
+import subprocess
+import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import importlib.util
 spec = importlib.util.spec_from_file_location("hyporun", "hypo-run.py")
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-k8s = m.K8s()
+
+def run(cmd, quiet=False):
+    if not quiet:
+        print("+ " + " ".join(cmd))
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
 
-def workload_pod_names(doc):
-    kind = doc.get("kind") or ""
-    name = (doc.get("metadata") or {}).get("name") or ""
-    ns = (doc.get("metadata") or {}).get("namespace") or k8s.namespace_default
-    if kind == "Pod":
-        return [(name, ns)]
-    # Job/Deployment/... -> pods are <name>-<hash>
-    pods = k8s.list_pods(namespace=ns, name_prefix=name + "-")
-    return [(p, ns) for p in pods] or [(name + "-?", ns)]
+def workload_docs(lab):
+    docs = [d for d in m.MiniYaml.parse_all(open(os.path.join(lab, "pod.yaml"),
+                                                 encoding="utf-8", errors="replace").read())
+            if isinstance(d, dict)]
+    return docs
 
 
 labs = sorted([d for d in os.listdir(".") if d.startswith("QCS-") and os.path.isdir(d)],
@@ -32,58 +35,38 @@ for lab in labs:
         print("%-30s %-20s %-14s %s" % (lab, "-", "-", "no pod.yaml"))
         continue
     try:
-        docs = [d for d in m.MiniYaml.parse_all(open(pod_path, encoding="utf-8", errors="replace").read())
-                if isinstance(d, dict)]
+        docs = workload_docs(lab)
     except Exception as e:
         print("%-30s %-20s %-14s %s" % (lab, "-", "-", "parse fail: %s" % e))
         continue
     wl = m.parse_pod_yaml(pod_path)
-    applied = 0
-    fails = []
-    for d in docs:
-        kind = d.get("kind") or ""
-        name = (d.get("metadata") or {}).get("name") or ""
-        ns = (d.get("metadata") or {}).get("namespace")
-        if not kind or not name:
-            continue
-        try:
-            st, body = k8s.apply_object(d)
-        except Exception as e:
-            fails.append("%s/%s:%s" % (kind, name, str(e)[:40]))
-            continue
-        if st in (200, 201):
-            applied += 1
-        else:
-            fails.append("%s/%s=%d" % (kind, name, st))
-    if not applied:
+    r = run(["kubectl", "apply", "-f", pod_path])
+    if r.returncode != 0:
         print("%-30s %-20s %-14s %s" % (lab, wl.get("name") or "-", "-",
-                                         "apply failed: " + "; ".join(fails)))
+                                         "apply failed: " + (r.stderr or r.stdout).strip()[:80]))
         continue
-    # wait briefly for the workload to reach a terminal-ish state
     time.sleep(8)
-    wdocs = [d for d in docs if d.get("kind") in ("Pod", "Job", "Deployment",
-                                                  "StatefulSet", "DaemonSet", "ReplicaSet", "CronJob")]
     statuses = []
-    for d in wdocs:
-        for pname, pns in workload_pod_names(d):
-            try:
-                phase, reason = k8s.pod_status(pname, pns)
-                statuses.append("%s:%s%s" % (pname, phase, ("/" + reason) if reason else ""))
-            except Exception as e:
-                statuses.append("%s:ERR(%s)" % (pname, str(e)[:30]))
-    detail = "; ".join(fails) or ("; ".join(statuses) if statuses else "no workload pods")
-    print("%-30s %-20s %-14s %s" % (lab, wl.get("name") or "-",
-                                     statuses[0].split(":")[1] if statuses else "-", detail))
-    # cleanup: delete in reverse
-    for d in reversed(docs):
-        kind = d.get("kind") or ""
-        name = (d.get("metadata") or {}).get("name") or ""
-        ns = (d.get("metadata") or {}).get("namespace")
-        if not kind or not name:
+    for d in docs:
+        if d.get("kind") not in ("Pod", "Job", "Deployment", "StatefulSet",
+                                 "DaemonSet", "ReplicaSet", "CronJob"):
             continue
-        try:
-            k8s.delete_object(kind, name, ns)
-        except Exception:
-            pass
+        name = (d.get("metadata") or {}).get("name") or ""
+        ns = (d.get("metadata") or {}).get("namespace") or "default"
+        r = run(["kubectl", "get", "pods", "-n", ns, "--no-headers",
+                 "-o", "custom-columns=:metadata.name"], quiet=True)
+        pnames = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith(name + "-")]
+        if d.get("kind") == "Pod":
+            pnames = [name]
+        for pn in pnames:
+            r2 = run(["kubectl", "get", "pod", pn, "-n", ns, "-o",
+                      "jsonpath={.status.phase}|{.status.containerStatuses[0].state.waiting.reason}"],
+                     quiet=True)
+            phase, _, reason = r2.stdout.strip().partition("|")
+            statuses.append("%s:%s%s" % (pn, phase, ("/" + reason) if reason else ""))
+    print("%-30s %-20s %-14s %s" % (lab, wl.get("name") or "-",
+                                     statuses[0].split(":")[1] if statuses else "-",
+                                     "; ".join(statuses) if statuses else "no pods"))
+    run(["kubectl", "delete", "-f", pod_path, "--ignore-not-found=true"], quiet=True)
     time.sleep(1)
 print("\nsweep complete")
