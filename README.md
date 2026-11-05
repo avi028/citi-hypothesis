@@ -175,10 +175,11 @@ client) with a built-in YAML parser. It also keeps the standalone
 `ebpf-operator` flow as a fallback backend.
 
 ```bash
-# run on the EC2 host, as root
+# run on the EC2 host, as root (v1 mode is the default)
 sudo python3 hypo-run.py --dry-run                 # preflight + plan only (zero side effects)
-sudo python3 hypo-run.py --labs 1,3-5,7 --yes     # run selected labs without prompts
-sudo python3 hypo-run.py --labs all --yes         # run every runnable lab
+sudo python3 hypo-run.py --labs 1,3-5,7 --yes     # run selected labs (v1 policies) without prompts
+sudo python3 hypo-run.py --labs all --yes         # run every runnable lab (v1)
+sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor   # v2 sweep (process rules)
 sudo python3 hypo-run.py                          # interactive: pick labs, confirm each
 ```
 
@@ -188,6 +189,7 @@ Key flags (all also settable via `HYPO_RUN_*` env vars):
 |------|---------|
 | `--labs 1,3-5,7 / all` | selection (indices are fixed, natural order H01..H20) |
 | `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers |
+| `--policy-mode v1/v2/auto` | policy form; **default v1** (v2 has the process/exec rules), `auto` picks by CRS version |
 | `--labs-dir DIR` | lab directory (default: repo root) |
 | `--events-file FILE` | capture file (operator backend; k8s backend reads sensor pod logs) |
 | `--log-file FILE` | tee terminal output to a file |
@@ -201,12 +203,12 @@ Key flags (all also settable via `HYPO_RUN_*` env vars):
 | `--max-log-bytes` / `--max-events` | evidence window / print caps |
 
 Per lab it: prints the hypothesis briefing + policy-to-workload mapping;
-applies the CRS-appropriate policy file (`policy-v2.yaml` for CRS 1.46+,
-`policy-v1.yaml` for CRS 1.45 and below; override with `--policy-mode v1|v2`) via kubectl; **waits for the approval gate**
+applies the policy file (`policy-v1.yaml` by default; `--policy-mode v2`
+uses `policy-v2.yaml`, `auto` picks by CRS version) via kubectl; **waits for the approval gate**
 (`RuntimePolicy.status.state = Applied` — the same signal the manual
 `ebpflog.sh` flow checks); applies `pod.yaml` and waits for the workload to
 run; settles; greps the sensor logs for policy/rule-id evidence (deduped,
-capped; in `--policy-mode v1` also matches activity tokens from pod.yaml so
+capped; in v1 mode also matches activity tokens from pod.yaml so
 process-lab verdicts reflect the base sensor's policy-free `process_exec`
 stream, with policy vs activity/exec hit counts split in the report);
 records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,

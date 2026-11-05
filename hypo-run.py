@@ -39,6 +39,9 @@ OPTIONS
                           execution backend; auto detects a reachable cluster
                           (k8s API, no kubectl needed) else the standalone
                           ebpf-operator flow
+    --policy-mode v1|v2|auto
+                          policy form to apply; default v1 (v2 has the
+                          process/exec rules; auto picks by CRS version)
     --version             print version and exit
 
 ENVIRONMENT (all flags also settable via env)
@@ -121,7 +124,7 @@ import time
 from collections import OrderedDict
 from types import SimpleNamespace
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -492,7 +495,7 @@ def build_cfg(argv=None):
     p.add_argument("--backend", default=None,
                    help="execution backend: auto (default), k8s, or operator")
     p.add_argument("--policy-mode", default=None,
-                   help="policy form: auto (default, by CRS version), v1, or v2")
+                   help="policy form: v1 (default), v2, or auto (by CRS version)")
     p.add_argument("--setup-sensor", action="store_true",
                    help="install the CRS sensor chart per policy mode before running "
                         "(v1 -> HYPO_RUN_CRS_DIR_V1, default /home/ubuntu/arnav/145; "
@@ -519,7 +522,7 @@ def build_cfg(argv=None):
     cfg.backend = (args.backend or os.environ.get("HYPO_RUN_BACKEND") or "auto").strip().lower()
     if cfg.backend not in ("auto", "k8s", "operator"):
         p.error("--backend must be auto, k8s, or operator")
-    cfg.policy_mode = (args.policy_mode or os.environ.get("HYPO_RUN_POLICY_MODE") or "auto").strip().lower()
+    cfg.policy_mode = (args.policy_mode or os.environ.get("HYPO_RUN_POLICY_MODE") or "v1").strip().lower()
     if cfg.policy_mode not in ("auto", "v1", "v2"):
         p.error("--policy-mode must be auto, v1, or v2")
     cfg.setup_sensor = args.setup_sensor or env_bool("HYPO_RUN_SETUP_SENSOR")
@@ -988,7 +991,7 @@ def lab_sort_key(name):
 
 
 def policy_mode_for(crs_version_str):
-    """v1 policy for CRS <= 1.45; v2 otherwise. 'auto' mode uses this."""
+    """Policy mode: v1 by default; 'auto' picks v1 for CRS <= 1.45, else v2."""
     if CFG.policy_mode != "auto":
         return CFG.policy_mode
     m = re.search(r"(\d{1,2})\.(\d{1,2})", crs_version_str or "")

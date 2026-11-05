@@ -160,9 +160,18 @@ try:
         f.write("apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: busybox\n")
     with open(os.path.join(tmp, "QCS-H21-v1only", "RESULT.md"), "w") as f:
         f.write("# T\n\n## Verdict\n\n**Supported** - yes\n")
+    # default policy mode is v1: a CRS 1.46+ lab with both forms still picks v1
+    os.makedirs(os.path.join(tmp, "QCS-H22-v1default"))
+    for fn, api in (("policy-v1.yaml", "v1"), ("policy-v2.yaml", "v2")):
+        with open(os.path.join(tmp, "QCS-H22-v1default", fn), "w") as f:
+            f.write("apiVersion: qualys.com/%s\nkind: RuntimePolicy\nmetadata:\n  name: citi-h22\nspec:\n  base-policy: file-read\n  action: audit\n" % api)
+    with open(os.path.join(tmp, "QCS-H22-v1default", "pod.yaml"), "w") as f:
+        f.write("apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: busybox\n")
+    with open(os.path.join(tmp, "QCS-H22-v1default", "RESULT.md"), "w") as f:
+        f.write("# T\n\nCRS version support: 1.46+\n\n## Verdict\n\n**Supported** - yes\n")
     runnable, not_runnable = m.scan_labs(tmp)
     names = [l["name"] for l in runnable]
-    check("natural order H02 before H10", names == ["QCS-H02-ok", "QCS-H10-ok", "QCS-H21-v1only"])
+    check("natural order H02 before H10", names == ["QCS-H02-ok", "QCS-H10-ok", "QCS-H21-v1only", "QCS-H22-v1default"])
     check("not-runnable listed", [l["name"] for l in not_runnable] == ["QCS-H01-no-pod", "QCS-H03-bad-yaml"])
     reasons = {l["name"]: l["reason"] for l in not_runnable}
     check("reason: missing pod.yaml", "missing pod.yaml" in reasons.get("QCS-H01-no-pod", ""))
@@ -178,6 +187,10 @@ try:
     v1labs = [l for l in runnable if l["name"] == "QCS-H21-v1only"]
     check("v1 mode selected by CRS", v1labs and v1labs[0]["mode"] == "v1" and v1labs[0]["policy_path"].endswith("policy-v1.yaml"))
     check("v1 base_policy parsed", v1labs and v1labs[0]["policy"]["base_policy"] == "file-read")
+    v1def = [l for l in runnable if l["name"] == "QCS-H22-v1default"]
+    check("default mode is v1 even for CRS 1.46+", v1def and v1def[0]["mode"] == "v1" and v1def[0]["policy_path"].endswith("policy-v1.yaml"))
+    check("CFG default policy_mode is v1", m.CFG.policy_mode == "v1")
+    check("v2 override still available", m.policy_mode_for("1.46+") == "v1" and (m.build_cfg(["--policy-mode", "v2"]).policy_mode == "v2"))
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
