@@ -12,11 +12,12 @@ activity instead of just watching it.
 **Detected in both v1 and v2; enforcement is partial.** Every drift step
 (create/write/metadata/rename/delete) is detected with attribution in both
 policy forms. In enforcement mode, the **write into the blocked directory
-is stopped** (SIGKILL mid-write, pod exit 137). The **one caveat in both
-v1 and v2: the sensor cannot stop the shell script from running** — the
-exec of the dropped script is not blocked (v1 has no exec rule at all;
-v2's exec-block rule does not stop the script from running), so the
-script's payload executes.
+is stopped** (SIGKILL mid-write, pod exit 137). The caveat is
+**v1-specific: v1 cannot stop the shell script from running** — v1 has no
+exec/process base-policy, and the only v1 lever (`file-open` + `kill`)
+would kill any open of a file at that location — far too wide a scope.
+**v2 can stop the script**: its process rule (`drift-block-exec`) kills the
+exec at `security_bprm_check` before the script's payload runs.
 
 ## What we did (k8s two-phase flow, `hypo-run.py`)
 
@@ -26,9 +27,11 @@ script's payload executes.
   after startup, modifies it, chmods it, runs it, renames it, deletes it.
   Grepped the sensor logs for the detection payloads.
 - **Enforcement phase**: removed the audit pod + policy, applied
-  `policy-v1-enforce.yaml` (file-write **kill** on `/tmp/citi-h02-block/`),
-  then ran `pod-enforce.yaml` — a pod that attempts to (1) exec a dropped
-  script staged inside the blocked dir and (2) write `evil.sh` into it.
+  `policy-v1-enforce.yaml` (file-write **kill** on `/tmp/citi-h02-block/`;
+  v2 uses `policy-enforce.yaml`, which adds the process rule
+  `drift-block-exec`), then ran `pod-enforce.yaml` — a pod that attempts to
+  (1) exec a dropped script staged inside the blocked dir and (2) write
+  `evil.sh` into it.
 
 ## What we observed — audit mode (both v1 and v2)
 
@@ -53,16 +56,18 @@ activity/process_exec).
 | Attempt | Result |
 |---|---|
 | `echo evil > /tmp/citi-h02-block/evil.sh` | Shell **SIGKILLed mid-write** (exit 137, pod Failed). The kill is recorded as a File event payload. |
-| Execute dropped script `/tmp/citi-h02-block/drift.sh` | **NOT blocked — the script runs.** The sensor cannot stop the shell script from executing; the exec is visible in the base process stream (`Process ALLOWED`, process-tree entry) but no exec rule stops it. **Caveat in both v1 and v2.** |
+| Execute dropped script `/tmp/citi-h02-block/drift.sh` | **v1: NOT blocked — the script runs.** v1 has no exec rule, and `file-open` + `kill` would kill any open of a file in the dir (too wide a scope). **v2: blocked** at `security_bprm_check` — the script is killed before its payload runs. Live v1 run showed the exec running (`Process ALLOWED`, process-tree entry). |
 
 ## One thing to know
 
 - "Block" means the offending **process is terminated** (SIGKILL) at the
   moment it touches the watched path — it is not a clean "permission
   denied", the actor dies. That's the intended behavior for enforcement.
-- The **script-exec leg is the gap**: v1 has no exec/process base-policy at
-  all, and the v2 process rule does not stop the shell script from running.
-  Only the file-write leg is actually enforced.
+- The **script-exec gap is v1-only**: v1 has no exec/process base-policy,
+  and its only file-level lever (`file-open` + `kill`) would kill any open
+  of a file in the watched directory — far too wide a scope. **v2 closes
+  the gap** with its process rule (`drift-block-exec` at
+  `security_bprm_check`).
 - The audit policy and the enforce policy are separate RuntimePolicy
   files; on OpenShift you'd apply audit first, then switch to enforce.
 
@@ -76,10 +81,12 @@ activity/process_exec).
 | E1d | Rename | **YES** (live) | `security_path_rename` (`mv`) |
 | E1e | Delete | **YES** (live) | `security_path_unlink` (`rm`) |
 | E2 | Enforce: kill the writer on block-dir write | **YES** (live, v1) | `File event payload` (kill action), pod exit 137 — write stopped |
-| E3 | Enforce: block exec of the dropped script | **NO — caveat** | the script **runs**; the sensor cannot stop the shell script from executing (v1: no exec rule; v2: exec-block does not stop it) |
+| E3 | Enforce: block exec of the dropped script | **v2: YES; v1: NO** | v2: SIGKILL at `security_bprm_check` before the payload runs (H16-verified pattern). v1: no exec rule — `file-open` + `kill` would be too wide; live v1 run: the script ran |
 | E4 | Attribution (process, cmdline, UID, container, node, time) | **YES** (live) | `process.binary`, `arguments`, `uid`, container, `node_name`, `time` on every event; pod/ns fields verified in cluster runs |
 
-**Not covered live:** E3 (script-exec block) — the caveat in both v1 and v2.
+**Not covered live:** the v1 leg of E3 (script-exec block) — v1 has no exec
+rule; the only v1 lever (file-open kill) is too wide. v2 covers E3 via its
+process rule.
 
 ## eBPF-Agent events observed (2026-11-05 cluster runs, v1)
 
@@ -91,10 +98,13 @@ activity/process_exec).
 {"process_kprobe": {"policy_name": "citi-h02-drift-rename",   "function_name": "security_path_rename", "process": {"binary": "/usr/bin/mv"}}}
 {"process_kprobe": {"policy_name": "citi-h02-drift-delete",   "function_name": "security_path_unlink", "process": {"binary": "/usr/bin/rm"}}}
 
-// enforce (policy citi-h02-drift-block-write, action: kill)
+// enforce (policy citi-h02-drift-block-write, action: kill) — v1 run
 //   write attempt -> killed: File event payload (SIGKILL), pod exit 137
-//   exec attempt  -> NOT blocked: "Process ALLOWED - Regex match: process='/tmp/citi-h02-block/drift.sh'"
-//                    + "New process added to tree: /tmp/citi-h02-block/drift.sh" (the script ran)
+//   exec attempt  -> NOT blocked in v1: "Process ALLOWED - Regex match:
+//                    process='/tmp/citi-h02-block/drift.sh'" + "New process
+//                    added to tree: .../drift.sh" (the script ran)
+//   v2 (policy-enforce.yaml drift-block-exec): SIGKILL at
+//   security_bprm_check — the script is stopped before its payload runs
 ```
 
 ## Files in this lab
@@ -102,7 +112,7 @@ activity/process_exec).
 | File | Purpose |
 |---|---|
 | `policy-v1.yaml` / `policy-v2.yaml` | Audit-mode detection rules (create/write/metadata/rename/delete on `/tmp/citi-h02/`) |
-| `policy-v1-enforce.yaml` / `policy-enforce.yaml` | Enforcement rules — kill the writer on `/tmp/citi-h02-block/` (v2 also carries an exec-block rule that does not stop the script) |
+| `policy-v1-enforce.yaml` / `policy-enforce.yaml` | Enforcement rules — kill the writer on `/tmp/citi-h02-block/`; v2 adds the process rule `drift-block-exec` (stops the script at `security_bprm_check`) |
 | `pod.yaml` | Audit-phase workload (the drift lifecycle) |
 | `pod-enforce.yaml` | Enforcement-phase workload (exec + write attempts into the blocked dir) |
 | `RESULT.md` | This document |
