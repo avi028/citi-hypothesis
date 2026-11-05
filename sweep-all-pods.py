@@ -20,7 +20,7 @@ def run(cmd, quiet=False):
 
 
 def workload_docs(lab):
-    docs = [d for d in m.MiniYaml.parse_all(open(os.path.join(lab, "pod.yaml"),
+    docs = [d for d in m.yaml_load_multi(open(os.path.join(lab, "pod.yaml"),
                                                  encoding="utf-8", errors="replace").read())
             if isinstance(d, dict)]
     return docs

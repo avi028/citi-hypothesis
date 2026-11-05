@@ -26,11 +26,11 @@ spec:
       MARKER="CITI-H18-7749"
       echo "payload-$MARKER" > /tmp/citi-h18-payload.txt
       cat > /tmp/citi-h18-chain.sh <<'SH'
-#!/bin/sh
-cat /tmp/citi-h18-payload.txt
-getent hosts citi-h18-svc.citi-h18.svc.cluster.local 2>/dev/null || true
-wget -q -T 3 --post-file /tmp/citi-h18-payload.txt -O /dev/null http://citi-h18-svc:8080/upload
-SH
+      #!/bin/sh
+      cat /tmp/citi-h18-payload.txt
+      getent hosts citi-h18-svc.citi-h18.svc.cluster.local 2>/dev/null || true
+      wget -q -T 3 --post-file /tmp/citi-h18-payload.txt -O /dev/null http://citi-h18-svc:8080/upload
+      SH
       chmod +x /tmp/citi-h18-chain.sh
       /tmp/citi-h18-chain.sh
       echo "CHAIN-DONE"

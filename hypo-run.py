@@ -55,10 +55,8 @@ EXIT CODES
 
 ## Design decisions
 -------------------
-1. Stdlib only. YAML is parsed with PyYAML when importable; otherwise a
-   built-in line-scanner extracts the fields hypo-run needs (policy name,
-   rule id/type/action, Not-applied markers, pod image/name/command). We
-   never pip-install anything on the box.
+1. Stdlib + PyYAML (python3-yaml, shipped with the distro). Missing PyYAML
+   fails fast with an install hint; we never pip-install on the box.
 2. Subprocess discipline: every child is started in its own session
    (setsid) so we can kill the entire process group on timeout or
    interrupt — and we only ever kill children we spawned.
@@ -99,12 +97,6 @@ EXIT CODES
     stay in-script. The sensor SIGKILLs `cat` of its own logs (exit 137), so
     the evidence path falls back to `kubectl logs`, which carries the event
     payloads.
-13. YAML: PyYAML when present, else a built-in parser (MiniYaml) covering the
-    manifest subset (maps, sequences, flow collections, block scalars,
-    comments, quotes, unindented heredoc bodies). Manifests are applied from
-    the parsed JSON — no yaml-to-cli round trip.
-14. No kubectl/helm/docker/ebpf-operator invocation in the k8s backend: the
-    flow is fully self-contained in this script.
 """
 
 import argparse
@@ -433,255 +425,24 @@ def release_lock():
 
 
 # --------------------------------------------------------------------------
-# --------------------------------------------------------------------------
-# YAML (PyYAML when present; otherwise a built-in minimal parser).
-# hypo-run is fully self-contained: manifests are parsed locally and applied
-# through the k8s REST API -- no external CLI tools are invoked.
+# YAML: PyYAML (python3-yaml, present on Ubuntu/RHEL). Strict - a malformed
+# manifest raises, and scan_labs marks that lab not-runnable with the reason.
+# kubectl itself reads the files for apply/delete; we only extract names,
+# rule ids and workload refs.
 # --------------------------------------------------------------------------
 
 try:
     import yaml as _yaml
-
-    _HAVE_YAML = True
 except ImportError:
-    _HAVE_YAML = False
+    _yaml = None
 
-
-class MiniYamlError(ValueError):
-    pass
-
-
-def _strip_comment(s):
-    in_s = in_d = False
-    for i, ch in enumerate(s):
-        if ch == "'" and not in_d:
-            in_s = not in_s
-        elif ch == '"' and not in_s:
-            in_d = not in_d
-        elif ch == "#" and not in_s and not in_d:
-            return s[:i].rstrip()
-    return s.rstrip()
-
-
-def _split_flow(inner):
-    parts, cur, depth, in_s, in_d = [], "", 0, False, False
-    for ch in inner:
-        if ch == "'" and not in_d:
-            in_s = not in_s
-        elif ch == '"' and not in_s:
-            in_d = not in_d
-        if not in_s and not in_d:
-            if ch in "[{":
-                depth += 1
-            elif ch in "]}":
-                depth -= 1
-            elif ch == "," and depth == 0:
-                parts.append(cur)
-                cur = ""
-                continue
-        cur += ch
-    if cur.strip():
-        parts.append(cur)
-    return parts
-
-
-def _parse_scalar(val):
-    val = val.strip()
-    if not val:
-        return None
-    if val in ("null", "Null", "NULL", "~"):
-        return None
-    if val in ("true", "True", "TRUE"):
-        return True
-    if val in ("false", "False", "FALSE"):
-        return False
-    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
-        inner = val[1:-1]
-        if val[0] == '"':
-            inner = (inner.replace('\\"', '"').replace("\\n", "\n")
-                     .replace("\\\\", "\\"))
-        return inner
-    if val.startswith("[") and val.endswith("]"):
-        inner = val[1:-1].strip()
-        if not inner:
-            return []
-        try:
-            return json.loads(val)
-        except Exception:
-            return [_parse_scalar(v) for v in _split_flow(inner)]
-    if val.startswith("{") and val.endswith("}"):
-        try:
-            return json.loads(val)
-        except Exception:
-            return val
-    if re.fullmatch(r"-?\d+", val):
-        try:
-            return int(val)
-        except ValueError:
-            return val
-    if re.fullmatch(r"-?\d+\.\d+", val):
-        try:
-            return float(val)
-        except ValueError:
-            return val
-    return val
-
-
-def _block_base_indent(parts):
-    inds = [len(p) - len(p.lstrip()) for p in parts if p.strip()]
-    return min(inds) if inds else 0
-
-
-def _is_key(content):
-    """True when a line looks like a YAML mapping key ('name: value')."""
-    return bool(re.match(r"^[A-Za-z0-9_.-]+:\s*", content)) and not content.startswith("- ")
-
-
-class MiniYaml:
-    """Minimal YAML parser for the subset used by lab manifests:
-    mappings, sequences, flow collections, block scalars, comments, quotes."""
-
-    @staticmethod
-    def parse(text):
-        lines = []
-        for raw in text.splitlines():
-            s = _strip_comment(raw)
-            if not s.strip():
-                continue
-            lines.append((len(s) - len(s.lstrip()), s.strip()))
-        if not lines:
-            return None
-        node, _ = MiniYaml._block(lines, 0, lines[0][0])
-        return node
-
-    @staticmethod
-    def parse_all(text):
-        docs = []
-        current = []
-        for raw in text.splitlines():
-            s = _strip_comment(raw)
-            if s.strip().startswith("---") or s.strip().startswith("..."):
-                if current:
-                    d = MiniYaml.parse("\n".join(current))
-                    if d is not None:
-                        docs.append(d)
-                    current = []
-                continue
-            current.append(raw)
-        if current:
-            d = MiniYaml.parse("\n".join(current))
-            if d is not None:
-                docs.append(d)
-        return docs
-
-    @staticmethod
-    def _block(lines, i, indent):
-        if i >= len(lines):
-            return None, i
-        ind, content = lines[i]
-        if ind < indent:
-            return None, i
-        if content.startswith("- "):
-            items = []
-            while i < len(lines) and lines[i][0] == indent and lines[i][1].startswith("- "):
-                dash_indent = lines[i][0]
-                rest = lines[i][1][2:].strip()
-                i += 1
-                if rest in ("|", "|-", "|+", ">"):
-                    # literal/folded block scalar: consume lines until a real
-                    # key at the parent indent (tolerates unindented heredocs)
-                    parts = []
-                    while i < len(lines):
-                        ind2, cont = lines[i]
-                        if _is_key(cont) and ind2 <= dash_indent:
-                            break
-                        parts.append(cont)
-                        i += 1
-                    base = _block_base_indent(parts)
-                    items.append("\n".join(p[base:] if p.strip() else "" for p in parts))
-                    continue
-                item_indent = dash_indent + 2
-                sub = []
-                if rest:
-                    sub.append((item_indent, rest))
-                # continuation lines: deeper indents, plus non-key lines even
-                # at lower indents (unindented heredoc bodies inside blocks)
-                while i < len(lines):
-                    ind2, cont = lines[i]
-                    if ind2 > dash_indent or (not _is_key(cont) and not cont.startswith("- ")):
-                        sub.append((ind2, cont))
-                        i += 1
-                    else:
-                        break
-                if not sub:
-                    items.append(None)
-                elif re.match(r"^[^:]+:\s*", sub[0][1]):
-                    # mapping item ("- name: x")
-                    node, _ = MiniYaml._block(sub, 0, item_indent)
-                    items.append(node)
-                else:
-                    # plain scalar item ("- /path" or "- 8080")
-                    vals = []
-                    for (ind2, cont) in sub:
-                        if ind2 == item_indent:
-                            vals.append(_parse_scalar(cont))
-                        elif vals:
-                            vals[-1] = str(vals[-1]) + " " + cont
-                    items.append(vals[0] if len(vals) == 1 else (vals if vals else None))
-            return items, i
-        d = {}
-        while i < len(lines) and lines[i][0] == indent:
-            ind, content = lines[i]
-            if content.startswith("- "):
-                break
-            m = re.match(r"^([^:]+):\s*(.*)$", content)
-            if not m:
-                raise MiniYamlError("cannot parse line %r" % content[:40])
-            key = m.group(1).strip().strip("'\"")
-            val = m.group(2).strip()
-            i += 1
-            if val in ("|", "|-", "|+", ">"):
-                parts = []
-                while i < len(lines):
-                    ind2, cont = lines[i]
-                    if _is_key(cont) and ind2 <= indent:
-                        break
-                    parts.append(cont)
-                    i += 1
-                base = _block_base_indent(parts)
-                d[key] = "\n".join(p[base:] if p.strip() else "" for p in parts)
-            elif val == "":
-                # nested block: deeper indent, or a sequence at the SAME
-                # indent as its key ("rules:" followed by "- name: ...")
-                if i < len(lines) and lines[i][0] > indent:
-                    node, i = MiniYaml._block(lines, i, lines[i][0])
-                    d[key] = node
-                elif i < len(lines) and lines[i][0] == indent and lines[i][1].startswith("- "):
-                    node, i = MiniYaml._block(lines, i, indent)
-                    d[key] = node
-                else:
-                    d[key] = None
-            else:
-                d[key] = _parse_scalar(val)
-        return d, i
-
-
-def yaml_load(text):
-    if _HAVE_YAML:
-        try:
-            return _yaml.safe_load(text)
-        except Exception:
-            pass
-    return MiniYaml.parse(text)
+YAML_HINT = "PyYAML is required: apt install python3-yaml (or dnf install python3-pyyaml)"
 
 
 def yaml_load_multi(text):
-    if _HAVE_YAML:
-        try:
-            return [d for d in _yaml.safe_load_all(text) if d is not None]
-        except Exception:
-            pass
-    return MiniYaml.parse_all(text)
+    if _yaml is None:
+        raise RuntimeError(YAML_HINT)
+    return [d for d in _yaml.safe_load_all(text) if d is not None]
 
 
 def env_bool(name, default=False):
@@ -1355,7 +1116,7 @@ def parse_pod_yaml(path):
     containers = (spec.get("containers") or template.get("containers") or [])
     container = containers[0] if containers else {}
     md = pod.get("metadata") if isinstance(pod.get("metadata"), dict) else {}
-    # tolerate both structured (PyYAML/MiniYaml) and flat (legacy scanner) shapes
+    # fall back to top-level fields for hand-written minimal manifests
     name = md.get("name") or pod.get("name") or ""
     image = container.get("image") or pod.get("image") or ""
     command = _pod_command(pod)
@@ -2399,6 +2160,10 @@ def main():
         log("backend: %s (requested: %s)" % (CFG.backend, args_backend_label()))
     except Exception as e:
         log("backend detection failed: %s" % e)
+
+    if _yaml is None:
+        logerr("[FAIL] %s" % YAML_HINT)
+        return 1
 
     # single instance
     lock = acquire_lock(CFG.run_dir)
