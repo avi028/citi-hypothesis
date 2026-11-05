@@ -725,6 +725,10 @@ def build_cfg(argv=None):
                    help="execution backend: auto (default), k8s, or operator")
     p.add_argument("--policy-mode", default=None,
                    help="policy form: auto (default, by CRS version), v1, or v2")
+    p.add_argument("--setup-sensor", action="store_true",
+                   help="install the CRS sensor chart per policy mode before running "
+                        "(v1 -> HYPO_RUN_CRS_DIR_V1, default /home/ubuntu/arnav/145; "
+                        "v2 -> HYPO_RUN_CRS_DIR_V2, default /home/ubuntu/arnav/146)")
     p.add_argument("--version", action="version", version="hypo-run " + __version__)
     args = p.parse_args(argv)
 
@@ -750,6 +754,9 @@ def build_cfg(argv=None):
     cfg.policy_mode = (args.policy_mode or os.environ.get("HYPO_RUN_POLICY_MODE") or "auto").strip().lower()
     if cfg.policy_mode not in ("auto", "v1", "v2"):
         p.error("--policy-mode must be auto, v1, or v2")
+    cfg.setup_sensor = args.setup_sensor or env_bool("HYPO_RUN_SETUP_SENSOR")
+    cfg.crs_dir_v1 = os.environ.get("HYPO_RUN_CRS_DIR_V1", "/home/ubuntu/arnav/145")
+    cfg.crs_dir_v2 = os.environ.get("HYPO_RUN_CRS_DIR_V2", "/home/ubuntu/arnav/146")
 
     cfg.repo_root = os.path.dirname(os.path.abspath(__file__))
     cfg.run_dir = os.environ.get("RUN_DIR", RUN_DIR_DEFAULT)
@@ -817,16 +824,67 @@ def k8s_delete_manifest(path, lr=None):
         log("  deleted: %s" % path)
 
 
-def k8s_get_runtimepolicy_state(name):
-    rc, out, _ = run(["kubectl", "get", "runtimepolicy", name, "-o",
+def k8s_get_runtimepolicy_state(name, mode="v2"):
+    # v1 policies live on the policies.qualys.com CRD; v2 on runtimepolicies
+    res = "policies" if mode == "v1" else "runtimepolicy"
+    rc, out, _ = run(["kubectl", "get", res, name, "-o",
                       "jsonpath={.status.state}", "--request-timeout=10s"], quiet=True)
     return out.strip()
 
 
-def k8s_get_runtimepolicy_rules(name):
-    rc, out, _ = run(["kubectl", "get", "runtimepolicy", name, "-o",
+def k8s_get_runtimepolicy_rules(name, mode="v2"):
+    res = "policies" if mode == "v1" else "runtimepolicy"
+    rc, out, _ = run(["kubectl", "get", res, name, "-o",
                       "jsonpath={.status.rules}", "--request-timeout=10s"], quiet=True)
     return out
+
+
+def install_sensor(crs_dir, timeout=300):
+    """Install (reinstall) the CRS sensor helm chart from crs_dir into the
+    qualys namespace, then wait for the sensor pod and the runtimepolicy CRD.
+    Mirrors the manual ritual: helm uninstall + helm install qualys-tc."""
+    chart = os.path.join(crs_dir, "qualys-tc")
+    if not os.path.isdir(chart):
+        log("[WARN] sensor chart dir not found: %s" % chart)
+        return False
+    log("installing CRS sensor from %s" % chart)
+    rc, out, err = run(["helm", "uninstall", "qualys-tc", "-n", "qualys"], cwd=crs_dir,
+                       timeout=CFG.timeout_cmd * 2)
+    if rc != 0:
+        log("[WARN] helm uninstall: %s" % trim_line(err or out))
+    rc, out, err = run(["helm", "install", "qualys-tc", "./qualys-tc", "-n", "qualys"],
+                       cwd=crs_dir, timeout=CFG.timeout_cmd * 2)
+    if rc != 0:
+        log("[WARN] helm install failed: %s" % trim_line(err or out))
+        return False
+    log("  helm install ok - waiting for sensor pod + CRDs")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if k8s_sensor_pods():
+            rc2, _, _ = run(["kubectl", "get", "crd", "runtimepolicies.qualys.com",
+                             "--request-timeout=10s"], quiet=True)
+            if rc2 == 0:
+                log("  sensor pod up + runtimepolicy CRD present")
+                return True
+        sleep_check(5)
+    log("[WARN] sensor did not become ready within %ds" % timeout)
+    return False
+
+
+def sensor_logs_mention(name):
+    """True when the sensor pod logs mention `name` - the v1 approval signal
+    (the old CRS does not write CRD status, so fall back to the logs)."""
+    for pod in k8s_sensor_pods():
+        for f in ("/usr/local/qualys/runtime-sensor/data/logs/ebpfAgentLogFile.log",
+                  "/usr/local/qualys/runtime-sensor/data/logs/runtime_sensor.log"):
+            rc, out, _ = run(["kubectl", "exec", "-n", "qualys", pod, "--", "cat", f],
+                             timeout=CFG.timeout_cmd * 2, quiet=True)
+            if rc == 0 and out and name.lower() in out.lower():
+                return True
+        rc, out, _ = run(["kubectl", "logs", "-n", "qualys", pod, "--tail=2000"], quiet=True)
+        if rc == 0 and name.lower() in out.lower():
+            return True
+    return False
 
 
 def k8s_sensor_pods():
@@ -1580,7 +1638,7 @@ def k8s_install_policy(lab, lr):
     log("installing policy via kubectl: %s (%s)" % (", ".join(names), lab["policy_path"]))
 
     # deterministic: delete-then-re-add if already installed
-    st = k8s_get_runtimepolicy_state(names[0])
+    st = k8s_get_runtimepolicy_state(names[0], lab.get("mode", "v2"))
     if st != "":
         log("  policy '%s' already installed - deleting then re-adding (deterministic)" % names[0])
         k8s_delete_manifest(lab["policy_path"], lr)
@@ -1596,11 +1654,16 @@ def k8s_install_policy(lab, lr):
     while time.time() < deadline and not interrupted():
         statuses = []
         for n in names:
-            statuses.append((n, k8s_get_runtimepolicy_state(n)))
+            statuses.append((n, k8s_get_runtimepolicy_state(n, lab.get("mode", "v2"))))
         last = "; ".join("%s=%s" % (n, s) for n, s in statuses)
         if statuses and all(s == "Applied" for _, s in statuses):
             all_applied = True
             break
+        if lab.get("mode") == "v1" and statuses and all(s == "" for _, s in statuses):
+            if any(sensor_logs_mention(n) for n, _ in statuses):
+                log("  v1 approval confirmed in sensor logs (CRD status empty on old CRS)")
+                all_applied = True
+                break
         sleep_check(2)
     if interrupted():
         lr.left_installed.extend(names)
@@ -1610,7 +1673,7 @@ def k8s_install_policy(lab, lr):
         log("  policy approved: %s" % last)
         # per-rule Not-applied warnings
         for n in names:
-            rules_out = k8s_get_runtimepolicy_rules(n)
+            rules_out = k8s_get_runtimepolicy_rules(n, lab.get("mode", "v2"))
             for m in re.finditer(r'"state"\s*:\s*"Not-applied"', rules_out):
                 rid = "?"
                 mm = re.search(r'"id"\s*:\s*"([^"]+)"[^}]*?"state"\s*:\s*"Not-applied"', rules_out)
@@ -2442,12 +2505,23 @@ def main():
         # phase 3
         log("")
         log("== PHASE 3: EXECUTION ==")
-        for i, lab in enumerate(selected_labs, 1):
+        # run v1 labs on the old CRS (145) and v2 labs on the current CRS (146)
+        groups = OrderedDict()
+        for lab in selected_labs:
+            groups.setdefault(lab.get("mode", "v2"), []).append(lab)
+        _gi = 0
+        for mode, labs_mode in groups.items():
+            if CFG.setup_sensor:
+                crs_dir = CFG.crs_dir_v1 if mode == "v1" else CFG.crs_dir_v2
+                if not install_sensor(crs_dir):
+                    log("[WARN] sensor setup for mode %s failed - continuing on current sensor" % mode)
+            for lab in labs_mode:
+                _gi += 1
             if interrupted():
                 exit_reason = "interrupted"
                 break
             log("")
-            log(">>> [%d/%d] lab %d: %s" % (i, len(selected_labs), lab["_index"], lab["name"]))
+            log(">>> [%d/%d] lab %d: %s" % (_gi, len(selected_labs), lab["_index"], lab["name"]))
             if not CFG.yes and has_tty():
                 try:
                     ans = prompt("  run this lab now? [Y/n] ", default="y")
