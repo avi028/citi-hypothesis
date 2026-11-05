@@ -7,7 +7,7 @@ workload manifest, and a recorded result.
 **Base version: `release/v1.6-1-q5`** — all labs are verified on this
 branch. `setup.sh` warns if you run from a different branch.
 
-```
+```bash
 tar xzf citi-hypothesis.tar.gz        # unpack inside the ebpf-agent repo root
 cd ebpf-agent
 sudo citi-hypothesis/setup.sh         # checks env, builds, starts agent + capture
@@ -26,7 +26,7 @@ sudo citi-hypothesis/setup.sh         # checks env, builds, starts agent + captu
 Every hypothesis is validated with this 5-stage loop — real agent, real
 kernel hooks, real workload, real events:
 
-```
+```text
 stage 1  ebpf-agent agent running            (setup.sh or manual, on :54321)
 stage 2  ebpf-operator getevents -o json >> events.jsonl   (background capture)
 stage 3  ./ebpf-operator tracingpolicy add <lab>/policy.yaml
@@ -67,7 +67,7 @@ sudo citi-hypothesis/teardown.sh
 
 ## Lab anatomy
 
-```
+```text
 citi-hypothesis/<LAB-NAME>/
 ├── policy.yaml      # RuntimePolicy v2 (auto-translated by ebpf-operator)
 ├── policy-v1.yaml   # RuntimePolicy v1 (legacy form — see below)
@@ -79,8 +79,8 @@ citi-hypothesis/<LAB-NAME>/
 ### RuntimePolicy v1 (legacy) form
 
 Every lab also ships `policy-v1.yaml`: the same detection in the legacy
-`qualys.com/v1` schema (`spec.base-policy` + `monitor-*`/`match-binaries`
-+ `action`). One document per base-policy — v1 has no rule list.
+`qualys.com/v1` schema (`spec.base-policy`, `monitor-*`/`match-binaries`,
+and `action`). One document per base-policy — v1 has no rule list.
 
 `ebpf-operator` cannot ingest v1 directly (that path belongs to the cluster's
 conversion webhook + operator). To test locally, run the same builders
@@ -111,7 +111,7 @@ then record the outcome in `RESULT.md` — plain language, verdict up front.
 ## RuntimePolicy v2 capability (release/v1.6-1-q5)
 
 | Rule `type` | What it produces | Filters |
-|---|---|---|
+| --- | --- | --- |
 | `file` | kprobes per `fileOperation`: `read`, `write`, `write-diff`, `create`, `delete`, `rename`, `open`, `metadata` (chmod/chown/truncate), `links` | `matchFilePaths`, `matchBinaries` |
 | `process` | `security_bprm_check` kprobe (pre-exec — `block` stops the exec) | `matchBinaries` |
 | `network` | egress audit → `tcp_connect` kprobe; egress block → `connect4`; ingress → `accept4` | `matchPorts`, `matchIPAddresses`, `matchProtocols`; `matchDNS`/`matchFQDN` only on egress block |

@@ -15,10 +15,7 @@ script is the control: its binary field shows the script path, while
 inline/stdin show only the interpreter.
 
 **memfd fileless exec (the anonymous in-memory binary) is NOT covered in
-this release** — it was only expressible with a raw Cilium TracingPolicy
-(`sys_memfd_create`), which is an operator/docker-flow artifact and cannot
-be applied in the k8s flow. The raw-TP policy files have been removed from
-the lab; **memfd/fileless support is slated for the next release**.
+this release IT shall be supported in the next release**.
 
 ## What we did (k8s flow, `hypo-run.py`)
 
