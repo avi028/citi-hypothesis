@@ -15,6 +15,8 @@ attached. The caveat: each record shows the process and its **immediate
 parent** — grandparent-and-deeper trees are rebuilt by linking the event
 IDs, which the data fully supports but isn't pre-joined in a single event.
 
+NOTE: with v1 policy direct marked process is not available , you need to apply file-open policy on the binary / script to get an evnet unlike v2 which has direct marked process capability.
+
 ## What we did
 
 - Wrote a policy (`policy.yaml`) that flags exec of a specific chain
@@ -75,19 +77,6 @@ child.
 
 **Not covered live:** none — all points verified (E5g under k8s).
 
-## eBPF-Agent events observed (2026-11-03 quick run)
-
-```json
-{"process_exec":   {"process": {"binary": "/usr/bin/sh", "arguments": "-c \"MARKER=CITI-H03-5521 …\"", "uid": 0, "docker": "c487a1d85fed"}}}
-{"process_kprobe": {"policy_name": "citi-h03-process-lineage-v2-chain-exec", "function_name": "security_bprm_check"}}
-{"process_exec":   {"process": {"binary": "/tmp/citi-h03-chain.sh", "parent": {"binary": "/usr/bin/sh"}}}}
-{"process_exec":   {"process": {"binary": "/usr/bin/sleep", "arguments": "300", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
-{"process_exec":   {"process": {"binary": "/usr/bin/find", "arguments": "/etc -name *.conf", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
-{"process_exec":   {"process": {"binary": "/usr/bin/head", "arguments": "-3", "parent": {"binary": "/tmp/citi-h03-chain.sh"}}}}
-{"process_exit":   {"process": {"binary": "/usr/bin/head"}, "signal": null}}
-{"process_exit":   {"process": {"binary": "/usr/bin/find"}, "signal": null}}
-{"process_exit":   {"process": {"binary": "/usr/bin/sleep", "arguments": "300"}, "signal": "SIGTERM"}}
-```
 
 ## Files in this lab
 
@@ -96,19 +85,3 @@ child.
 | `policy.yaml` | Flags the suspicious script exec (audit mode) |
 | `pod.yaml` | Apply to the cluster to generate the process chain |
 | `RESULT.md` | This document |
-
-## docker run command used for the local proof
-
-```bash
-docker run -d --name citi-h03 debian:stable-slim sleep 600
-docker exec citi-h03 sh -c '
-  MARKER="CITI-H03-7749"
-  printf "#!/bin/sh\necho chain-marker %s\nsleep 300 &\nLP=\$!\n
-find /etc -name \"*.conf\" | head -3\nsleep 2\nkill \$LP\n" "$MARKER" \
-    > /tmp/citi-h03-chain.sh
-  chmod +x /tmp/citi-h03-chain.sh
-  /tmp/citi-h03-chain.sh'
-```
-
-Result: all 10 exec/exit records for the chain with parent attribution,
-plus 1 policy-flagged event on the script exec.
