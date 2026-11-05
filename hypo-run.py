@@ -723,6 +723,8 @@ def build_cfg(argv=None):
     p.add_argument("--labs", default=None)
     p.add_argument("--backend", default=None,
                    help="execution backend: auto (default), k8s, or operator")
+    p.add_argument("--policy-mode", default=None,
+                   help="policy form: auto (default, by CRS version), v1, or v2")
     p.add_argument("--version", action="version", version="hypo-run " + __version__)
     args = p.parse_args(argv)
 
@@ -745,6 +747,9 @@ def build_cfg(argv=None):
     cfg.backend = (args.backend or os.environ.get("HYPO_RUN_BACKEND") or "auto").strip().lower()
     if cfg.backend not in ("auto", "k8s", "operator"):
         p.error("--backend must be auto, k8s, or operator")
+    cfg.policy_mode = (args.policy_mode or os.environ.get("HYPO_RUN_POLICY_MODE") or "auto").strip().lower()
+    if cfg.policy_mode not in ("auto", "v1", "v2"):
+        p.error("--policy-mode must be auto, v1, or v2")
 
     cfg.repo_root = os.path.dirname(os.path.abspath(__file__))
     cfg.run_dir = os.environ.get("RUN_DIR", RUN_DIR_DEFAULT)
@@ -1175,6 +1180,16 @@ def lab_sort_key(name):
     return (int(m.group(1)) if m else 1 << 30, name)
 
 
+def policy_mode_for(crs_version_str):
+    """v1 policy for CRS <= 1.45; v2 otherwise. 'auto' mode uses this."""
+    if CFG.policy_mode != "auto":
+        return CFG.policy_mode
+    m = re.search(r"(\d{1,2})\.(\d{1,2})", crs_version_str or "")
+    if m and (int(m.group(1)), int(m.group(2))) <= (1, 45):
+        return "v1"
+    return "v2"
+
+
 def scan_labs(labs_dir):
     """Returns (runnable_labs, not_runnable) — natural numeric order."""
     labs = []
@@ -1189,8 +1204,9 @@ def scan_labs(labs_dir):
         lab = {
             "name": entry,
             "dir": d,
-            "policy_path": os.path.join(d, "policy.yaml"),
+            "policy_v2_path": os.path.join(d, "policy-v2.yaml"),
             "policy_v1_path": os.path.join(d, "policy-v1.yaml"),
+            "policy_path": "",
             "pod_path": os.path.join(d, "pod.yaml"),
             "tracing_path": os.path.join(d, "tracingpolicy.yaml"),
             "result_path": os.path.join(d, "RESULT.md"),
@@ -1198,12 +1214,25 @@ def scan_labs(labs_dir):
             "reason": "",
             "verdict": "",
             "crs_version": "",
+            "mode": "v2",
             "policy": None,
             "pod": None,
         }
+        lab["verdict"] = result_verdict(lab["result_path"])
+        lab["crs_version"] = crs_version(lab["result_path"], lab["pod_path"])
+        # pick the policy file by CRS version: v1 for CRS <= 1.45, else v2
+        lab["mode"] = policy_mode_for(lab["crs_version"])
+        chosen = lab["policy_v2_path"] if lab["mode"] == "v2" else lab["policy_v1_path"]
+        if not os.path.isfile(chosen):
+            # fall back to the other form with a note
+            alt = lab["policy_v1_path"] if lab["mode"] == "v2" else lab["policy_v2_path"]
+            if os.path.isfile(alt):
+                lab["mode"] = "v1" if lab["mode"] == "v2" else "v2"
+                chosen = alt
+        lab["policy_path"] = chosen
         problems = []
         if not os.path.isfile(lab["policy_path"]):
-            problems.append("missing policy.yaml")
+            problems.append("missing %s" % os.path.basename(chosen))
         if not os.path.isfile(lab["pod_path"]):
             problems.append("missing pod.yaml")
         if problems:
@@ -1217,8 +1246,6 @@ def scan_labs(labs_dir):
             except Exception as e:
                 lab["runnable"] = False
                 lab["reason"] = "malformed YAML: %s" % e
-        lab["verdict"] = result_verdict(lab["result_path"])
-        lab["crs_version"] = crs_version(lab["result_path"], lab["pod_path"])
         labs.append(lab)
     runnable = [l for l in labs if l["runnable"]]
     not_runnable = [l for l in labs if not l["runnable"]]
@@ -1263,7 +1290,15 @@ def parse_policy_yaml(path):
         m = re.search(r"^name:\s*(\S+)", text, re.M)
         if m:
             names.append(m.group(1))
-    return {"names": names, "name": names[0] if names else "", "rules": rules, "text": text}
+    base_policy = ""
+    for doc in docs:
+        if isinstance(doc, dict):
+            bp = (doc.get("spec") or {}).get("base-policy")
+            if bp:
+                base_policy = str(bp)
+                break
+    return {"names": names, "name": names[0] if names else "",
+            "rules": rules, "base_policy": base_policy, "text": text}
 
 
 def parse_pod_yaml(path):
@@ -1464,6 +1499,9 @@ def briefing(lab, ctx):
     log("HYPOTHESIS: %s" % title)
     log("  %s" % hypothesis)
     log("  recorded verdict: %s | CRS: %s" % (lab["verdict"] or "n/a", lab["crs_version"] or "n/a"))
+    log("  policy mode: %s (%s)" % (lab.get("mode", "v2"), os.path.basename(lab["policy_path"])))
+    if lab.get("mode") == "v1":
+        log("  note: v1 policy - legacy form, global 1-minute rate limit (bursts drop events)")
     log("")
     log("mapping:")
     pod = lab["pod"] or {}
@@ -1902,6 +1940,8 @@ def grep_evidence(lab, ctx, lr):
     for rid in rule_ids:
         if rid:
             variants.add("%s-v2-%s" % (base, rid))
+    if policy.get("base_policy"):
+        variants.add(policy["base_policy"])
     variants_l = [v for v in variants if v]
 
     evidence = []
@@ -2171,6 +2211,7 @@ def build_report(results, started_at, finished_at, exit_reason, pf, selected, no
         labs_out.append({
             "index": lr.lab.get("_index"),
             "name": lr.lab["name"],
+            "mode": lr.lab.get("mode", "v2"),
             "verdict": lr.verdict,
             "evidence_count": lr.evidence_count,
             "duration_s": lr.duration_s,
@@ -2356,8 +2397,8 @@ def main():
         log("runnable labs (%d):" % len(runnable))
         for i, lab in enumerate(runnable, 1):
             lab["_index"] = i
-            log("  %2d. %-32s verdict=%s crs=%s" % (i, lab["name"], lab["verdict"] or "n/a",
-                                                    lab["crs_version"] or "n/a"))
+            log("  %2d. %-32s verdict=%s crs=%s mode=%s" % (i, lab["name"], lab["verdict"] or "n/a",
+                                                              lab["crs_version"] or "n/a", lab.get("mode", "v2")))
         if not_runnable:
             log("not runnable (excluded from selection):")
             for l in not_runnable:

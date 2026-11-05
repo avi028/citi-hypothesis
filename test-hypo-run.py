@@ -96,19 +96,27 @@ try:
          "apiVersion: qualys.com/v2\nkind: RuntimePolicy\nmetadata:\n  name: citi-h10\nspec:\n  rules:\n  - name: r1\n    type: process\n    action: audit\n",
          "apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: busybox\n"),
     ]:
-        with open(os.path.join(tmp, d, "policy.yaml"), "w") as f:
+        with open(os.path.join(tmp, d, "policy-v2.yaml"), "w") as f:
             f.write(pol_txt)
         with open(os.path.join(tmp, d, "pod.yaml"), "w") as f:
             f.write(pod_txt)
         with open(os.path.join(tmp, d, "RESULT.md"), "w") as f:
             f.write("# T\n\n## Verdict\n\n**Supported** — yes\n")
-    with open(os.path.join(tmp, "QCS-H03-bad-yaml", "policy.yaml"), "w") as f:
+    with open(os.path.join(tmp, "QCS-H03-bad-yaml", "policy-v2.yaml"), "w") as f:
         f.write(": : : : :\nnot: [valid\n")
     with open(os.path.join(tmp, "QCS-H03-bad-yaml", "pod.yaml"), "w") as f:
         f.write("kind: Pod\n")
+    # v1-mode lab: CRS 1.45+ with only policy-v1.yaml -> mode v1 (fallback)
+    os.makedirs(os.path.join(tmp, "QCS-H21-v1only"))
+    with open(os.path.join(tmp, "QCS-H21-v1only", "policy-v1.yaml"), "w") as f:
+        f.write("apiVersion: qualys.com/v1\nkind: RuntimePolicy\nmetadata:\n  name: citi-h21-v1\nspec:\n  base-policy: file-read\n  action: audit\n")
+    with open(os.path.join(tmp, "QCS-H21-v1only", "pod.yaml"), "w") as f:
+        f.write("apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: busybox\n")
+    with open(os.path.join(tmp, "QCS-H21-v1only", "RESULT.md"), "w") as f:
+        f.write("# T\n\n## Verdict\n\n**Supported** - yes\n")
     runnable, not_runnable = m.scan_labs(tmp)
     names = [l["name"] for l in runnable]
-    check("natural order H02 before H10", names == ["QCS-H02-ok", "QCS-H10-ok"])
+    check("natural order H02 before H10", names == ["QCS-H02-ok", "QCS-H10-ok", "QCS-H21-v1only"])
     check("not-runnable listed", [l["name"] for l in not_runnable] == ["QCS-H01-no-pod", "QCS-H03-bad-yaml"])
     reasons = {l["name"]: l["reason"] for l in not_runnable}
     check("reason: missing pod.yaml", "missing pod.yaml" in reasons.get("QCS-H01-no-pod", ""))
@@ -121,6 +129,9 @@ try:
     os.makedirs(os.path.join(tmp, "QCS-H05-nothing"), exist_ok=True)
     r2, nr2 = m.scan_labs(tmp)
     check("runnable excludes incomplete", all("QCS-H05-nothing" != l["name"] for l in r2))
+    v1labs = [l for l in runnable if l["name"] == "QCS-H21-v1only"]
+    check("v1 mode selected by CRS", v1labs and v1labs[0]["mode"] == "v1" and v1labs[0]["policy_path"].endswith("policy-v1.yaml"))
+    check("v1 base_policy parsed", v1labs and v1labs[0]["policy"]["base_policy"] == "file-read")
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
