@@ -65,7 +65,7 @@ Base version: `release/v1.6-1-q5`.
 
 | Lab | Hypothesis (one line) | Verdict (v2) | CRS | v1 verified |
 |---|---|---|---|---|
-| `QCS-H01-host-file-access` | Container Escape / Host File Access Attempt | **It works.** Every read of the host marker file was recorded, and each record told us exa | 1.45+ | yes |
+| `QCS-H01-host-file-access` | Container Escape / Host File Access Attempt | **Requires RuntimePolicy v2.** The hypothesis scopes to a specific host file via the v2 `Postfix` operator; v1 has no Postfix (Prefix-only), so v1 cannot determine the host file | 1.46+ | no |
 | `QCS-H02-runtime-file-drift` | Runtime File Drift and Unauthorized Executable Creation | **It works, in both modes.** Every stage of the file's life produced a detection record. I | 1.45+ | yes |
 | `QCS-H03-process-lineage` | Suspicious Process and Parent-Child Process Detection | **Supported, with one honest "partial".** Every launch, every child, every termination was | 1.46+ | yes |
 | `QCS-H04-fileless-exec` | Fileless or Inline Script Execution | **Partially — and the partial part matters.** You can't see the fileless script *itself*,  | 1.45+ | yes |
@@ -95,33 +95,20 @@ Base version: `release/v1.6-1-q5`.
 (a controlled directory mounted into it), Qualys sees it and can report
 **who did it, from where, and what they touched**.
 
-**Verdict.** **It works.** Every read of the host marker file was recorded, and each
-record told us exactly which container, which program, which command, and
-which file.
+**Verdict.** **Requires RuntimePolicy v2 — not v1.** The hypothesis targets a specific
+host file (`…/QCS-H01/canary.txt`), which is expressed with the v2 `Postfix` path
+operator. v1 `monitor-paths` are matched as a **Prefix** of the resolved path only —
+no Postfix — so v1 cannot determine the host file and this lab is **not covered**
+in v1 mode.
 
-**CRS version support: 1.45+** — v1 file-read covers the hypothesis
+**CRS version support: 1.46+** — v2 required (Postfix to scope to the host file)
 
-### RuntimePolicy v1 — `QCS-H01-host-file-access/policy-v1.yaml`
+### RuntimePolicy v1 — not shipped
 
-```yaml
-# RuntimePolicy v1 — the legacy qualys.com/v1 form.
-# In a cluster the API server converts this to the v2 hub (spec.legacy)
-# and the operator builds the TracingPolicy from base-policy +
-# monitor-*/match-binaries. Locally, citi-hypothesis/tools/v1convert runs
-# the same builders to emit the TracingPolicy YAML for `ebpf-operator`.
-# NOTE: monitor-paths are matched as a PREFIX of the resolved path.
-apiVersion: qualys.com/v1
-kind: RuntimePolicy
-metadata:
-  name: citi-h01-host-file-read
-spec:
-  base-policy: file-read
-  action: audit
-  monitor-paths:
-  - /var/qualys-poc/QCS-H01
-```
+No `policy-v1.yaml` — v1 has no Postfix and **cannot express this lab**; v1-default
+runs auto-fall back to `policy-v2.yaml` (same pattern as QCS-H20).
 
-### RuntimePolicy v2 — `QCS-H01-host-file-access/policy.yaml`
+### RuntimePolicy v2 — `QCS-H01-host-file-access/policy-v2.yaml`
 
 ```yaml
 apiVersion: qualys.com/v2
@@ -147,7 +134,8 @@ spec:
 
 ```yaml
 # QCS-H01 — Container Escape / Host File Access Attempt
-# CRS version support: 1.45+ — v1 file-read covers the hypothesis
+# CRS version support: 1.46+ — v2 required (Postfix scopes to the host file;
+# v1 monitor-paths are Prefix-only, no Postfix, so v1 cannot cover this lab)
 #
 # Applying this manifest creates a dedicated namespace, a service account, and
 # a pod that mounts the worker node's /var/qualys-poc/QCS-H01 read-only and

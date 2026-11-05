@@ -3,13 +3,13 @@
 Original hypothesis points with live coverage status. Full evidence in
 each lab's RESULT.md; coverage matrix and run log in README.md.
 
-Status legend: **YES** = verified live (docker e2e loop); **Partial** =
+Status legend: **YES** = verified live (k8s cluster e2e loop); **Partial** =
 verified with a documented limitation; **Not covered live** = needs a
 cluster or platform (listed in README "Execution points not covered").
 
 | # | Hypothesis | Verdict | CRS |
 |---|---|---|---|
-| H01 | Container Escape / Host File Access Attempt | **It works.** Every read of the host marker file was recorded, and each record told us exactly which | 1.45+ |
+| H01 | Container Escape / Host File Access Attempt | **Requires RuntimePolicy v2.** The hypothesis scopes to a specific host file via the v2 `Postfix` operator; v1 has no Postfix (Prefix-only), so v1 cannot determine the host file | 1.46+ |
 | H02 | Runtime File Drift and Unauthorized Executable Creation | **It works, in both modes.** Every stage of the file's life produced a detection record. In enforcem | 1.45+ |
 | H03 | Suspicious Process and Parent-Child Process Detection | **Supported, with one honest "partial".** Every launch, every child, every termination was recorded  | 1.46+ |
 | H04 | Fileless or Inline Script Execution | **Partially — and the partial part matters.** You can't see the fileless script *itself*, but you se | 1.45+ |
@@ -26,17 +26,17 @@ cluster or platform (listed in README "Execution points not covered").
 
 | Point | Task | Status | Evidence |
 |---|---|---|---|
-| E1 | Confirm a normal **restricted-v2 pod cannot access the host path** | **NOT COVERED live** | `pod.yaml` ships `citi-h01-restricted` (restricted-v2: non-root, no caps, seccomp) — needs a cluster apply to run; the docker-local analog (mounting the same dir at a different path → no event) shows detection is path-scoped, but the pod-level denial itself is a cluster/platform check |
-| E2 | Deploy an approved **elevated pod** with the test directory mounted **read-only** | Partial | `pod.yaml` ships `citi-h01-elevated` (hostPath, `readOnly: true`, hostmount-anyuid SCC note) — cluster apply required; docker-local equivalent verified live with `-v …:ro` |
+| E1 | Confirm a normal **restricted-v2 pod cannot access the host path** | **NOT COVERED live** | `pod.yaml` ships `citi-h01-restricted` (restricted-v2: non-root, no caps, seccomp). On the cluster it cannot start (`CreateContainerConfigError`) — the denial happens at admission/pod-creation; a path-level access denial was not demonstrated |
+| E2 | Deploy an approved **elevated pod** with the test directory mounted **read-only** | **YES** (cluster) | `citi-h01-elevated` applied on the cluster (hostPath, `readOnly: true`); its reads produced the detection events |
 | E3 | Run **ls, stat, cat, sha256sum** against the synthetic host file | **YES** (live) | `ls`/`stat` → no policy event (metadata-only, correct); `cat`/`sha256sum` → `vfs_read` events |
-| E4 | Validate **namespace, pod, container, process tree, command line, file path, node** attribution | **YES** | live: container id, process tree (`exec_id`/`parent_exec_id`), command line, `file_arg.path`, `node_name`, `time`; namespace/pod fields verified in cluster runs (populate under k8s/OpenShift; docker-local shows container id only) |
-| E5 | **Delete the pod** and confirm **historical activity remains searchable** | **YES** (live) | events persist in the stream after the container is removed — same evidence pattern as QCS-H17 (11 events survived deletion); `docker rm` of the test container leaves all records searchable by container id |
+| E4 | Validate **namespace, pod, container, process tree, command line, file path, node** attribution | **YES** | cluster runs: namespace, pod, container id, process tree (`exec_id`/`parent_exec_id`), command line, `file_arg.path`, node, time all populated on the events |
+| E5 | **Delete the pod** and confirm **historical activity remains searchable** | **YES** (live) | events persist in the stream after the pod is removed — same evidence pattern as QCS-H17 (11 events survived deletion); all records searchable by container id |
 
-**Verdict.** **It works.** Every read of the host marker file was recorded, and each
-record told us exactly which container, which program, which command, and
-which file.
+**Verdict.** **Requires RuntimePolicy v2 — not v1.** The hypothesis scopes to a
+specific host file via the v2 `Postfix` operator; v1 has no Postfix (Prefix-only),
+so v1 cannot determine the host file. In v1 mode this lab is **not covered**.
 
-**Lab:** `citi-hypothesis/QCS-H01-host-file-access/` — policies: `policy.yaml` (v2), `policy-v1.yaml` (v1); workload: `pod.yaml`
+**Lab:** `citi-hypothesis/QCS-H01-host-file-access/` — policy: `policy-v2.yaml` (v2, Postfix); no `policy-v1.yaml` (v1 cannot express this); workload: `pod.yaml`
 
 ---
 

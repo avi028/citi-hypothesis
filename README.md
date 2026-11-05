@@ -143,7 +143,7 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 
 | Lab | Hypothesis | Verdict | CRS |
 |---|---|---|
-| `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.45+ |
+| `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.46+ |
 | `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | 1.45+* |
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
 | `QCS-H04-fileless-exec` | Inline/stdin + memfd fileless execution → visible via activity; memfd blocked at `sys_memfd_create` | Partial (script body invisible; memfd exec flagged via `binary_properties`, enforcement needs raw TP) | 1.45+* |
@@ -266,7 +266,7 @@ one leg that needs a raw Cilium TracingPolicy hook (future release).
 Every lab ships `policy-v1.yaml`; live-verified. Where a leg cannot be
 expressed in v1 it is flagged in the lab's policy file and listed here:
 
-- **Fully v1 (no v2 needed)**: H01 (file-read), H04 (inline/activity
+- **Fully v1 (no v2 needed)**: H04 (inline/activity
   file + network legs), H05, H07 (net-tcp-open), H08 (file + network),
   H09, H10 (SA-token open + API ports), H19 (file-open health probe on
   `/usr/bin/true` — the steady probe exec stream is genuinely 1.45+).
@@ -289,8 +289,12 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
     keeps the pod stable is a v2 process rule.
   - H18: file + network legs are v1; the **chain-exec rule** (and the
     DNS leg) are v2/raw-TP only.
-- **No v1 form**: H20 (volume-mount monitoring) — no `policy-v1.yaml`;
-  only the raw syscall TracingPolicy expresses it (see RESULT.md).
+- **No v1 form**: H01 (host-file read needs the v2 `Postfix` operator to
+  scope to the specific host file — v1 `monitor-paths` are Prefix-only, so
+  v1 cannot determine the host file; no `policy-v1.yaml`) and H20
+  (volume-mount monitoring — no `policy-v1.yaml`; only the raw syscall
+  TracingPolicy expresses it). Both auto-fall back to `policy-v2.yaml` in
+  v1-default runs (see RESULT.md).
 
 #### v1 process-visibility evidence (how v1 process labs are judged)
 
@@ -334,8 +338,7 @@ the skill (`citi-hypothesis-labs`) so new labs follow the same rule.
 
 | Lab | Execution points NOT covered (live) | Why / where it lives |
 |---|---|---|
-| `QCS-H01-host-file-access` | E1 — restricted-v2 pod denial (live) | manifest `citi-h01-restricted` provided; needs a cluster apply (RESULT.md E1) |
-| `QCS-H01-host-file-access` | E2 — elevated-pod apply with read-only hostPath | manifest `citi-h01-elevated` provided; docker-local `-v :ro` equivalent verified live (RESULT.md E2) |
+| `QCS-H01-host-file-access` | E1 — restricted-v2 pod denial (live) | `citi-h01-restricted` cannot start on the cluster (`CreateContainerConfigError`) — denial at admission/pod-creation; path-level access denial not demonstrated (RESULT.md E1) |
 | `QCS-H05-east-west-visibility` | S4 — NetworkPolicy (intended-path-only) enforcement | docker has no NetworkPolicy; needs OpenShift (RESULT.md S4) |
 | `QCS-H05-east-west-visibility` | E5 — compare with OpenShift network/app logs | platform log comparison; minikube cluster available for the platform run (RESULT.md E5) |
 | `QCS-H06-north-south` | S3 — OpenShift egress controls (only test dest permitted) | docker has no egress policy; needs OpenShift (RESULT.md S3) |
@@ -361,10 +364,10 @@ it, and how it worked. New labs append rows here (skill rule).
 
 | Lab | Point | Task | Policy | How it worked |
 |---|---|---|---|---|
-| H01 | E1 | Restricted-v2 pod cannot access host path | — (admission) | Not covered live — manifest `citi-h01-restricted` shipped; needs cluster apply |
-| H01 | E2 | Elevated pod, hostPath read-only | `pod.yaml` (hostPath `readOnly`) | Docker-local `-v :ro` verified; pod apply needs cluster |
-| H01 | E3 | `ls, stat, cat, sha256sum` on host file | `policy.yaml` v2 `read` (Postfix `/QCS-H01/canary.txt`) | `cat`/`sha256sum` → `vfs_read` events; `ls`/`stat` silent (correct) |
-| H01 | E4 | ns/pod/container/process-tree/cmdline/path/node attribution | event fields | Verified: container, exec tree, cmdline, path, node live; pod/ns in cluster runs |
+| H01 | E1 | Restricted-v2 pod cannot access host path | — (admission) | Not covered live — `citi-h01-restricted` cannot start on the cluster (`CreateContainerConfigError`); path-level denial not demonstrated |
+| H01 | E2 | Elevated pod, hostPath read-only | `pod.yaml` (hostPath `readOnly`) | Cluster: elevated pod ran, reads produced the v2 detection events |
+| H01 | E3 | `ls, stat, cat, sha256sum` on host file | `policy-v2.yaml` v2 `read` (Postfix `/QCS-H01/canary.txt`) | `cat`/`sha256sum` → `vfs_read` events; `ls`/`stat` silent (correct) |
+| H01 | E4 | ns/pod/container/process-tree/cmdline/path/node attribution | event fields | Verified: container, exec tree, cmdline, path, node, pod/ns in cluster runs |
 | H01 | E5 | Delete pod → history searchable | — (retention) | Events persist after container removal |
 | H02 | E1 | Drift create/write/metadata/rename/delete | `policy.yaml` (5 v2 file rules) | `security_inode_create`, `vfs_write`, `security_path_chmod`, `security_path_rename`, `security_path_unlink` all fired |
 | H02 | E2 | Enforce: kill writer on block-dir write | `policy-enforce.yaml` `drift-block-write` | `KPROBE_ACTION_SIGKILL` at `vfs_write`, container exit 137 |

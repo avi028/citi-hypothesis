@@ -1,5 +1,6 @@
 # QCS-H01 — Container Escape / Host File Access Attempt
-# CRS version support: 1.45+ — v1 file-read covers the hypothesis
+# CRS version support: 1.46+ — v2 required (Postfix scopes to the host file;
+# v1 monitor-paths are Prefix-only, no Postfix, so v1 cannot cover this lab)
 #
 # Applying this manifest creates a dedicated namespace, a service account, and
 # a pod that mounts the worker node's /var/qualys-poc/QCS-H01 read-only and
