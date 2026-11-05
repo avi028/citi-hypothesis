@@ -101,8 +101,8 @@ v1 differences vs v2 (verified by these labs):
   maps to the same default; it cannot be disabled.** Bursts lose events.
 - file policies auto-add `matchNamespaces: Pid NotIn host_ns` — container
   opens only; host opens of the same path never fire.
-- no v1 base-policy for process-exec (H03), memfd (H04), or DNS/UDP (H06)
-  — those stay on v2 rules or raw TracingPolicy.
+- no v1 base-policy for process-exec (H03), memfd (H04 — next release),
+  or DNS/UDP (H06) — those stay on v2 rules or raw TracingPolicy.
 
 Copy `citi-hypothesis/TEMPLATE/` to start a new lab: write the hypothesis,
 add the policy + pod manifests, run it locally with the docker flow above,
@@ -128,8 +128,9 @@ If a hypothesis needs a syscall/kprobe/tracepoint v2 cannot express —
 e.g. `memfd_create`, `ptrace`, `mount`, UDP `ip_output`, uprobes — ship a
 native **Cilium TracingPolicy** (`apiVersion: cilium.io/v1alpha1`) in the
 lab as `tracingpolicy.yaml`. `ebpf-operator tracingpolicy add` applies it
-verbatim; see `TEMPLATE/tracingpolicy.yaml` and the working examples in
-QCS-H04 (`sys_memfd_create`) and QCS-H06 (UDP `:53`).
+verbatim; see `TEMPLATE/tracingpolicy.yaml` and the working example in
+QCS-H06 (UDP `:53`). (QCS-H04's memfd leg used this fallback; the raw-TP
+form was removed from the lab — memfd is a next-release item.)
 
 ### Future implementation note
 
@@ -146,7 +147,7 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 | `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.46+ |
 | `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | 1.45+* |
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
-| `QCS-H04-fileless-exec` | Inline/stdin + memfd fileless execution → visible via activity; memfd blocked at `sys_memfd_create` | Partial (script body invisible; memfd exec flagged via `binary_properties`, enforcement needs raw TP) | 1.45+* |
+| `QCS-H04-fileless-exec` | Inline/stdin fileless execution → visible via activity; file-based script is the control | Partial (script body invisible for stdin; memfd fileless = next release) | 1.45+ |
 | `QCS-H05-east-west-visibility` | Cross-namespace connects → full 5-tuple + process + container per event | Supported (pod/ns names need k8s) | 1.45+ |
 | `QCS-H06-north-south` | Outbound connects incl. refused/blackholed → recorded; unlisted ports → not; UDP DNS → needs raw TP | Supported (scoped to watched ports; DNS needs `ip_output` fallback) | 1.45+* |
 | `QCS-H07-netpol-denied` | Denied connection attempts → still recorded, identical to successes | Supported (attempt ≠ outcome; corroborate with platform logs) | 1.45+ |
@@ -276,8 +277,8 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
     v1; the **exec-block** of the dropped script is a v2 process rule.
   - H03: v1 `file-open` approximates the launch marker; the **process-exec
     flag** is v2-only (no process base-policy in v1).
-  - H04: **memfd fileless exec** — no v1 base-policy; raw
-    `tracingpolicy*.yaml` required (future release).
+  - H04: **memfd fileless exec** — no v1 base-policy; **next release**
+    (the raw `tracingpolicy*.yaml` form was removed from the lab).
   - H06: **UDP/DNS** leg — `net-tcp-open` is TCP only; raw `ip_output`
     TracingPolicy required (future release).
   - H11: v1 `file-open` on `/usr/bin/id` fires at exec; the

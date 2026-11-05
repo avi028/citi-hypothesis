@@ -49,7 +49,7 @@ Base version: `release/v1.6-1-q5`.
 - **Process exec / enforcement of exec** — no base-policy (H03, H12,
   H16: exec-block leg v2-only).
 - **Capabilities** (H11) — no capability filter; v2 needs raw TP too.
-- **memfd fileless exec** (H04) — raw TracingPolicy required.
+- **memfd fileless exec** (H04) — no v1 base-policy; **next release** (raw-TP form removed from the lab).
 - **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only.
 - **Burst fidelity** — forced `rateLimit: 1m` drops repeated events.
 
@@ -599,7 +599,7 @@ script *itself*, but you see **everything it does**: every command it
 launches, every file it opens, every connection it makes, all attributed
 back to the shell that ran it.
 
-**CRS version support: 1.45+** — v1 file-open + net-tcp-open cover inline/activity legs; memfd/fileless rule = future release (raw TP)
+**CRS version support: 1.45+** — v1 file-open + net-tcp-open cover inline/activity legs; memfd/fileless rule = **next release** (raw-TP form removed from the lab)
 
 ### RuntimePolicy v1 — `QCS-H04-fileless-exec/policy-v1.yaml`
 
@@ -607,7 +607,7 @@ back to the shell that ran it.
 # RuntimePolicy v1 — canary open + outbound connect, mirroring the v2 pair.
 # (v1 monitor-paths are Prefix-matched resolved paths, not filename
 # postfixes — hence the full path here.)
-# memfd fileless exec has NO v1 base-policy — keep tracingpolicy*.yaml.
+# memfd fileless exec has NO v1 base-policy — next release item.
 apiVersion: qualys.com/v1
 kind: RuntimePolicy
 metadata:
@@ -669,7 +669,8 @@ spec:
 
 ```yaml
 # QCS-H04 — Fileless or Inline Script Execution
-# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover inline/activity legs; memfd/fileless rule = future release (raw TP)
+# CRS version support: 1.45+ — v1 file-open + net-tcp-open cover inline/activity legs;
+# memfd/fileless rule = next release (raw TracingPolicy form removed from the lab)
 #
 # Applying this manifest creates a pod that:
 #   1. drops a canary file,
@@ -721,88 +722,15 @@ spec:
         type: RuntimeDefault
 ```
 
-### Raw Cilium TracingPolicy fallback — `QCS-H04-fileless-exec/tracingpolicy.yaml`
+### Raw Cilium TracingPolicy fallback — removed (next release)
 
-```yaml
-# Raw Cilium TracingPolicy fallback — catches the fileless primitive itself.
-# memfd_create is not expressible in RuntimePolicy v2 today (no rule type/
-# fileOperation maps to it), so this lab uses the verbatim cilium.io policy.
-# Future implementation note: a v2 `fileless`/`memfd` rule type.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h04-memfd-create
-spec:
-  kprobes:
-  - call: "sys_memfd_create"
-    syscall: true
-    return: true
-    args:
-    - index: 0
-      type: "string"       # memfd name (attacker-chosen, often innocuous)
-    - index: 1
-      type: "int"          # MFD_* flags
-    returnArg:
-      index: 0
-      type: "int"          # the anonymous fd
-    selectors:
-    - matchActions:
-      - action: Post
-```
-
-### Raw Cilium TracingPolicy fallback — `QCS-H04-fileless-exec/tracingpolicy-block.yaml`
-
-```yaml
-# Enforcement fallback — kill any process that calls memfd_create.
-# Since matchBinaries cannot resolve a memfd-backed exec to a matchable path
-# (verified in RESULT.md), the primitive itself is the enforcement point.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h04-memfd-create-block
-spec:
-  kprobes:
-  - call: "sys_memfd_create"
-    syscall: true
-    return: true
-    args:
-    - index: 0
-      type: "string"
-    - index: 1
-      type: "int"
-    returnArg:
-      index: 0
-      type: "int"
-    selectors:
-    - matchActions:
-      - action: Sigkill
-```
-
-### Raw Cilium TracingPolicy fallback — `QCS-H04-fileless-exec/policy-memfd-block.yaml`
-
-```yaml
-apiVersion: qualys.com/v2
-kind: RuntimePolicy
-metadata:
-  name: citi-h04-memfd-block
-spec:
-  rules:
-  # Can a process block rule stop a memfd exec? Probe which path form the
-  # bprm binary resolves to for a memfd-backed file.
-  - name: memfd-block-exec
-    type: process
-    id: memfd-block-exec
-    action: block
-    matchBinaries:
-    - operator: Prefix
-      values:
-      - "/proc/self/fd/"
-      - "/memfd:"
-      - "memfd:"
-    - operator: Postfix
-      values:
-      - "(deleted)"
-```
+The lab previously shipped three raw-TP/v2-attempt forms for memfd
+(`tracingpolicy.yaml` auditing `sys_memfd_create`, `tracingpolicy-block.yaml`
+SIGKILLing it, and `policy-memfd-block.yaml` probing block-by-path). They
+cannot be applied in the k8s flow and have been **removed from the lab —
+memfd/fileless support is a next-release item** (a future v2
+`fileless`/`memfd` rule type; a `matchBinaries` extension for
+memory-backed bprm files).
 
 ### Observed data (v2 run)
 
@@ -816,7 +744,7 @@ spec:
 
 ### Observed data (v1 run)
 
-`file-open` on the canary + `net-tcp-open` on :8080 both fired (`security_file_open`, `tcp_connect`). memfd fileless exec: **no v1 base-policy** — `tracingpolicy*.yaml` raw TPs remain required.
+`file-open` on the canary + `net-tcp-open` on :8080 both fired (`security_file_open`, `tcp_connect`). memfd fileless exec: **no v1 base-policy** — the raw `tracingpolicy*.yaml` forms were removed from the lab; **memfd is a next-release item**.
 
 ---
 
