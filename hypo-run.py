@@ -2269,35 +2269,37 @@ def main():
                     log("[WARN] sensor setup for mode %s failed - continuing on current sensor" % mode)
             for lab in labs_mode:
                 _gi += 1
-            if interrupted():
-                exit_reason = "interrupted"
-                break
-            log("")
-            log(">>> [%d/%d] lab %d: %s" % (_gi, len(selected_labs), lab["_index"], lab["name"]))
-            if not CFG.yes and has_tty():
-                try:
-                    ans = prompt("  run this lab now? [Y/n] ", default="y")
-                except Abort:
-                    log("aborted at lab confirmation")
+                if interrupted():
                     exit_reason = "interrupted"
                     break
-                if str(ans).strip().lower() in ("n", "no"):
-                    log("  skipped by user")
-                    lr = LabResult(lab)
-                    lr.verdict = "SKIPPED"
-                    lr.note("skipped by user at confirmation")
-                    lr.duration_s = 0.0
-                    results.append(lr)
-                    continue
-            lr = run_lab(lab, lab["_index"], None)
-            results.append(lr)
-            left_installed.extend(lr.left_installed)
-            if interrupted():
-                exit_reason = "interrupted"
-                break
-            if CFG.fail_fast and lr.verdict in ("SKIPPED", "NOT-PROVEN"):
-                log("[WARN] --fail-fast: stopping after lab %s (%s)" % (lab["name"], lr.verdict))
-                exit_reason = "fail-fast"
+                log("")
+                log(">>> [%d/%d] lab %d: %s" % (_gi, len(selected_labs), lab["_index"], lab["name"]))
+                if not CFG.yes and has_tty():
+                    try:
+                        ans = prompt("  run this lab now? [Y/n] ", default="y")
+                    except Abort:
+                        log("aborted at lab confirmation")
+                        exit_reason = "interrupted"
+                        break
+                    if str(ans).strip().lower() in ("n", "no"):
+                        log("  skipped by user")
+                        lr = LabResult(lab)
+                        lr.verdict = "SKIPPED"
+                        lr.note("skipped by user at confirmation")
+                        lr.duration_s = 0.0
+                        results.append(lr)
+                        continue
+                lr = run_lab(lab, lab["_index"], None)
+                results.append(lr)
+                left_installed.extend(lr.left_installed)
+                if interrupted():
+                    exit_reason = "interrupted"
+                    break
+                if CFG.fail_fast and lr.verdict in ("SKIPPED", "NOT-PROVEN"):
+                    log("[WARN] --fail-fast: stopping after lab %s (%s)" % (lab["name"], lr.verdict))
+                    exit_reason = "fail-fast"
+                    break
+            if interrupted() or exit_reason != "completed":
                 break
 
         # phase 4
