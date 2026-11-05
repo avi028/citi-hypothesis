@@ -74,6 +74,52 @@ EV4 = '{"policy_name": "other-policy", "metadata": {"uid": "x"}}'
 check("non-match", m.event_matches(EV4, ["citi-h02"], [])[0] is False)
 check("malformed json still matcheable", m.event_matches("{not json with citi-h02 inside", ["citi-h02"], [])[0] is True)
 
+# ---- v1 activity tokens (base-sensor process_exec evidence) -------------------
+at1 = m.pod_activity_tokens(
+    {"command": ["sh", "-c", 'MARKER="CITI-H03-$(date +%s)"\ncat > /tmp/citi-h03-chain.sh <<EOF\n#!/bin/sh\necho "chain-marker $MARKER"\nsleep 300 &\nfind /etc -name "*.conf" | head -3\nEOF\nchmod +x /tmp/citi-h03-chain.sh\n/tmp/citi-h03-chain.sh\nsleep 3600']},
+    ["/tmp/citi-h03-chain.sh"])
+check("v1 tokens: tmp script from command", "/tmp/citi-h03-chain.sh" in at1)
+check("v1 tokens: lab marker CITI-H03", any("CITI-H03" in t for t in at1))
+check("v1 tokens: no policy names/no bare shell", all(t not in at1 for t in ("sh", "sleep", "find", "head", "MARKER", "citi-h03-chain-open")))
+at2 = m.pod_activity_tokens(
+    {"command": ["sh", "-c", "id; capsh --print 2>/dev/null || cat /proc/self/status | grep Cap; sleep 3600"]},
+    ["/usr/bin/id"])
+check("v1 tokens: monitor-path binary", "/usr/bin/id" in at2)
+check("v1 tokens: no generic proc path", all(t != "/proc/self/status" for t in at2))
+at3 = m.pod_activity_tokens(
+    {"command": ["sh", "-c", 'printf "#!/bin/sh\\necho CITI-H16-PROBE-RAN\\n" > /tmp/citi-h16-probe.sh\nchmod +x /tmp/citi-h16-probe.sh\n/tmp/citi-h16-probe.sh\nsleep 3600']},
+    ["/tmp/citi-h16-probe.sh"])
+check("v1 tokens: h16 probe script", "/tmp/citi-h16-probe.sh" in at3)
+check("v1 tokens: h16 marker", "CITI-H16-PROBE-RAN" in at3)
+check("v1 tokens: empty pod/policy -> none", m.pod_activity_tokens({}, []) == [])
+check("v1 tokens: capped at 12", len(m.pod_activity_tokens({"command": ["x"] * 30}, ["/usr/bin/a", "/usr/bin/b", "/usr/bin/c", "/usr/bin/d", "/usr/bin/e", "/usr/bin/f", "/usr/bin/g", "/usr/bin/h", "/usr/bin/i", "/usr/bin/j", "/usr/bin/k", "/usr/bin/l", "/usr/bin/m"])) <= 12)
+import tempfile as _tf
+_td = _tf.mkdtemp(prefix="hypo-pol-")
+try:
+    _pf = os.path.join(_td, "policy-v1.yaml")
+    open(_pf, "w").write("apiVersion: qualys.com/v1\nkind: RuntimePolicy\nmetadata:\n  name: p\nspec:\n  base-policy: file-open\n  monitor-paths:\n  - /usr/bin/id\n  - /tmp/citi-h03-chain.sh\n")
+    pol = m.parse_policy_yaml(_pf)
+    check("v1 monitor_paths parsed", pol["monitor_paths"] == ["/usr/bin/id", "/tmp/citi-h03-chain.sh"])
+    check("v1 monitor_paths fed to tokens", m.pod_activity_tokens({"command": ["sh", "-c", "id"]}, pol["monitor_paths"]) == ["/usr/bin/id", "/tmp/citi-h03-chain.sh"])
+finally:
+    shutil.rmtree(_td, ignore_errors=True)
+
+EV5 = json.dumps({"process": {"binary": "/tmp/citi-h16-probe.sh"}, "metadata": {"uid": "z1"}})
+h5, k5, kind5 = m.event_matches(EV5, ["citi-h16-probe-block"], [], ["/tmp/citi-h16-probe.sh", "CITI-H16-PROBE-RAN"])
+check("activity token structured match", h5 is True and kind5 == "activity")
+check("activity token dedupe key", k5 == "z1")
+EV6 = json.dumps({"policy_name": "citi-h16-probe-block", "process": {"binary": "/tmp/citi-h16-probe.sh"}, "metadata": {"uid": "z2"}})
+h6, _, kind6 = m.event_matches(EV6, ["citi-h16-probe-block"], [], ["/tmp/citi-h16-probe.sh"])
+check("policy kind precedence over activity", h6 is True and kind6 == "policy")
+h7, _, kind7 = m.event_matches(json.dumps({"process": {"binary": "/usr/bin/sleep"}, "metadata": {"uid": "z3"}}),
+                               ["citi-h16"], [], ["/tmp/citi-h16-probe.sh"])
+check("no activity token match", h7 is False)
+h8, _, kind8 = m.event_matches("raw log line running /tmp/citi-h18-chain.sh here", ["citi-h18-payload-open"], [], ["/tmp/citi-h18-chain.sh"])
+check("activity raw substring match", h8 is True and kind8 == "activity")
+h9, _, kind9 = m.event_matches('{"process": {"binary": "/usr/bin/true"}, "metadata": {"uid": "z4"}}',
+                               ["citi-h19-health-open"], [], ["/usr/bin/true"])
+check("activity structured binary match", h9 is True and kind9 == "activity")
+
 # ---- Not-applied warnings -----------------------------------------------------
 pol = {"text": "spec:\n  rules:\n  - name: r1\n    type: network\n    action: block\n    matchPorts:\n    - operator: In\n      values: [80]",
        "rules": [{"name": "r1", "id": "r1", "type": "network", "action": "block", "raw": '{"matchPorts": [80]}'}]}

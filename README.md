@@ -206,7 +206,10 @@ applies the CRS-appropriate policy file (`policy-v2.yaml` for CRS 1.46+,
 (`RuntimePolicy.status.state = Applied` — the same signal the manual
 `ebpflog.sh` flow checks); applies `pod.yaml` and waits for the workload to
 run; settles; greps the sensor logs for policy/rule-id evidence (deduped,
-capped); records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,
+capped; in `--policy-mode v1` also matches activity tokens from pod.yaml so
+process-lab verdicts reflect the base sensor's policy-free `process_exec`
+stream, with policy vs activity/exec hit counts split in the report);
+records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,
 with weak-evidence notes when a workload fails to start); and cleans up
 (delete policy + pod) unless `--keep`.
 
@@ -253,18 +256,18 @@ negative/restricted control pods still fail as intended.
 their negative-control pods intentionally fail and the Job's ready-wait runs
 its budget; the test workloads still ran and produced evidence.
 
-### v1 coverage per lab (H01–H10)
+### v1 coverage per lab (H01–H20)
 **CRS version per lab**: `1.45+` = RuntimePolicy v1 suffices; `1.46+`
 = RuntimePolicy v2 required (process/exec rules); a `*` marks a lab with
 one leg that needs a raw Cilium TracingPolicy hook (future release).
-### v1 coverage per lab (H01–H10)
 
 Every lab ships `policy-v1.yaml`; live-verified. Where a leg cannot be
 expressed in v1 it is flagged in the lab's policy file and listed here:
 
 - **Fully v1 (no v2 needed)**: H01 (file-read), H04 (inline/activity
   file + network legs), H05, H07 (net-tcp-open), H08 (file + network),
-  H09, H10 (SA-token open + API ports).
+  H09, H10 (SA-token open + API ports), H19 (file-open health probe on
+  `/usr/bin/true` — the steady probe exec stream is genuinely 1.45+).
 - **Partial — one leg is v2-only**:
   - H02: drift create/write/metadata/rename/delete + `action: kill` are
     v1; the **exec-block** of the dropped script is a v2 process rule.
@@ -274,12 +277,49 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
     `tracingpolicy*.yaml` required (future release).
   - H06: **UDP/DNS** leg — `net-tcp-open` is TCP only; raw `ip_output`
     TracingPolicy required (future release).
+  - H11: v1 `file-open` on `/usr/bin/id` fires at exec; the
+    **capability context** (CAP_SYS_ADMIN) is v2/raw-TP only.
+  - H12: v1 `file-open` on `/usr/bin/bash` fires when the vulnerable
+    package is invoked; the **process rule** that flags the binary is
+    v2-only.
+  - H16: v1 `file-open` + `action: kill` on the probe script
+    **enforces** (probe killed, pod Failed); the **exec-block** that
+    keeps the pod stable is a v2 process rule.
+  - H18: file + network legs are v1; the **chain-exec rule** (and the
+    DNS leg) are v2/raw-TP only.
+- **No v1 form**: H20 (volume-mount monitoring) — no `policy-v1.yaml`;
+  only the raw syscall TracingPolicy expresses it (see RESULT.md).
 
-All nineteen labs also carry verified `policy-v1.yaml` (legacy v1
-schema); `ALL-HYPOTHESES.md` consolidates both policy forms + observed
-data, plus the three "discuss with Qualys" use cases (crypto-mining —
-mechanism verified in `tools/miner-sim.yaml`; package search;
-unauthorized components).
+#### v1 process-visibility evidence (how v1 process labs are judged)
+
+v1 has **no process-exec base-policy**, so a v1 policy name alone never
+matches a process *detection payload* — only operator lifecycle lines
+("Adding policy …", "Successfully added policy …"). To judge process
+labs honestly in v1 mode, `hypo-run.py` (v1.1.0) additionally greps
+**activity tokens** — the workload's runtime script paths, lab markers,
+and the v1 `monitor-paths` from `pod.yaml` — against the base sensor's
+policy-free `process_exec` stream ("New process added to tree: …",
+"Process-exec event payload"). Reports split evidence into
+**policy-name/rule-id hits** vs **activity/process_exec hits**, and the
+verdict notes flag the case where only activity/exec evidence matched.
+
+v1 sweep re-run (2026-11-05, H03/H11/H12/H16/H18/H19,
+`--policy-mode v1 --setup-sensor`, sensor-log evidence, all PROVEN):
+
+| Lab | v1 policy form | policy hits | activity/exec hits | Honest v1 reading |
+|---|---|---|---|---|
+| H03 | file-open `/tmp/citi-h03-chain.sh` | 2 (lifecycle only) | 2 | chain script exec visible in base stream; exec-flag rule v2-only |
+| H11 | file-open `/usr/bin/id` | 3 (incl. File event) | 3 | `id` exec + file-open detected; capability context v2/raw-TP |
+| H12 | file-open `/usr/bin/bash` | 2 (lifecycle only) | 18 | "in use" proven: bash execs visible; binary rule v2-only |
+| H16 | file-open `/tmp/citi-h16-probe.sh`, `action: kill` | 3 (incl. File event) | 1 | v1 kill-on-open **enforced** (probe killed, pod Failed); exec-block rule v2-only |
+| H18 | file-open payload + `net-tcp-open` 8080 | 3 | 14 | chain exec / cat / getent / exits visible at base level; rule-matching v2 |
+| H19 | file-open `/usr/bin/true` | 3 (incl. File event) | 4 | health probe's steady exec stream visible — genuinely v1 |
+
+All twenty labs carry verified `policy-v1.yaml` (legacy v1 schema)
+except H20 (no v1 form — raw TracingPolicy only); `ALL-HYPOTHESES.md`
+consolidates both policy forms + observed data, plus the three "discuss
+with Qualys" use cases (crypto-mining — mechanism verified in
+`tools/miner-sim.yaml`; package search; unauthorized components).
 
 ## Execution-point coverage
 

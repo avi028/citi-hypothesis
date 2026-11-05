@@ -65,6 +65,13 @@ EXIT CODES
    "<policy>-v2-<rule-id>" names) cannot attribute a previous lab's events.
    Event timestamps are used as a secondary window when parseable; the tail
    of the capture is read only up to --max-log-bytes.
+3b. v1 process-visibility evidence: v1 has no process-exec base-policy, so a
+   v1 process-lab verdict matched on the v1 policy name alone can ride on
+   operator lifecycle lines instead of detection payloads. In v1 mode the
+   evidence grep additionally matches activity tokens extracted from pod.yaml
+   and the v1 policy (runtime script paths, lab markers, monitored binaries)
+   against the base-sensor policy-free process_exec stream, and the report
+   distinguishes policy-name/rule-id hits from activity/process_exec hits.
 4. "Policy installed" = the add command exited 0 AND the translated policy
    appears in `tracingpolicy list` (polled up to --timeout-poll). An
    already-installed policy is deleted then re-added (deterministic).
@@ -114,7 +121,7 @@ import time
 from collections import OrderedDict
 from types import SimpleNamespace
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -1091,14 +1098,20 @@ def parse_policy_yaml(path):
         if m:
             names.append(m.group(1))
     base_policy = ""
+    monitor_paths = []
     for doc in docs:
-        if isinstance(doc, dict):
-            bp = (doc.get("spec") or {}).get("base-policy")
-            if bp:
-                base_policy = str(bp)
-                break
+        if not isinstance(doc, dict):
+            continue
+        spec = doc.get("spec") or {}
+        bp = spec.get("base-policy")
+        if bp:
+            base_policy = str(bp)
+        mp = spec.get("monitor-paths")
+        if isinstance(mp, list):
+            monitor_paths.extend(str(v) for v in mp if isinstance(v, str) and v.startswith("/"))
     return {"names": names, "name": names[0] if names else "",
-            "rules": rules, "base_policy": base_policy, "text": text}
+            "rules": rules, "base_policy": base_policy,
+            "monitor_paths": monitor_paths, "text": text}
 
 
 def parse_pod_yaml(path):
@@ -1145,6 +1158,40 @@ def _pod_command(pod):
     if not isinstance(cmd, list):
         cmd = [cmd]
     return [str(c) for c in cmd]
+
+
+def pod_activity_tokens(pod, monitor_paths=None):
+    """Activity tokens for matching base-sensor process_exec evidence in v1
+    mode (v1 has no process-exec policy, so the only real proof that the
+    workload's binaries ran is the sensor's policy-free exec stream).
+
+    Tokens come from the pod command and the v1 policy: runtime script paths
+    (/tmp/... - unique per lab), the binaries the policy watches
+    (monitor-paths), and lab markers that surface in exec args (CITI-HNN-...,
+    *marker*). Generic bare commands (sh, echo, sleep, ...) are intentionally
+    excluded - they would match unrelated events across the whole cluster's
+    exec stream. Returns up to 12 unique tokens.
+    """
+    cmd = " ".join(str(c) for c in (pod or {}).get("command") or [])
+    tokens = []
+    seen = set()
+
+    def add(tok):
+        tok = tok.strip()
+        if tok and tok not in seen:
+            seen.add(tok)
+            tokens.append(tok)
+
+    # runtime scripts the workload creates and executes (/tmp/...) - unique
+    for m in re.finditer(r"(?<![A-Za-z0-9_@.+-])(/tmp/[A-Za-z0-9_@.+~/-]+)", cmd):
+        add(m.group(1))
+    # the binaries the v1 policy watches (monitor-paths)
+    for p in (monitor_paths or []):
+        add(str(p))
+    # lab markers that surface in exec args (CITI-HNN-..., *marker*)
+    for m in re.finditer(r"\b(CITI-H\d\d[-\w]*|[\w-]+marker[\w-]*|CHAIN-DONE)\b", cmd):
+        add(m.group(1))
+    return tokens[:12]
 
 
 def result_verdict(result_path):
@@ -1735,8 +1782,11 @@ def grep_evidence(lab, ctx, lr):
     """Gather evidence for this lab's policy.
 
     k8s backend: sensor pod logs via the k8s API (the lab's events carry the
-    policy/rule ids); operator backend: the capture file. Returns evidence
-    list (deduped, capped).
+    policy/rule ids); operator backend: the capture file. In v1 mode the
+    policy has no process-exec rule, so we also match activity tokens
+    (pod.yaml binaries/scripts + v1 monitor paths) against the base-sensor
+    process_exec stream. Returns (evidence, {"policy": n, "activity": n,
+    "tokens": m}) - counts recomputed on the deduped list.
     """
     policy = lab["policy"] or {}
     base = policy.get("name") or lab["name"]
@@ -1749,9 +1799,16 @@ def grep_evidence(lab, ctx, lr):
         variants.add(policy["base_policy"])
     variants_l = [v for v in variants if v]
 
+    activity_tokens = []
+    if lab.get("mode") == "v1":
+        activity_tokens = pod_activity_tokens(lab["pod"] or {}, policy.get("monitor_paths") or [])
+        if activity_tokens:
+            log("  v1 activity tokens (base-sensor process_exec evidence): %s"
+                % ", ".join(activity_tokens))
+
     evidence = []
     if CFG.backend == "k8s":
-        evidence = k8s_sensor_evidence(variants_l, rule_ids)
+        evidence = k8s_sensor_evidence(variants_l, rule_ids, activity_tokens)
     if not evidence and os.path.isfile(CFG.events_file):
         cap = CFG.events_file
         try:
@@ -1764,17 +1821,25 @@ def grep_evidence(lab, ctx, lr):
                 tail = fh.read().decode("utf-8", errors="replace")
         except OSError as e:
             lr.note("cannot read capture: %s" % e)
-            return evidence
+            return evidence, {"policy": 0, "activity": 0, "tokens": len(activity_tokens)}
         for line in tail.splitlines():
             line = line.strip()
             if not line:
                 continue
             if interrupted():
                 break
-            hit, key = event_matches(line, variants_l, rule_ids)
+            hit, key, _ = event_matches(line, variants_l, rule_ids, activity_tokens)
             if hit:
                 evidence.append(line)
-    return dedupe_evidence(evidence)
+    evidence = dedupe_evidence(evidence)
+    pol = act = 0
+    for line in evidence:
+        _, _, kind = event_matches(line, variants_l, rule_ids, activity_tokens)
+        if kind == "policy":
+            pol += 1
+        elif kind == "activity":
+            act += 1
+    return evidence, {"policy": pol, "activity": act, "tokens": len(activity_tokens)}
 
 
 def dedupe_evidence(lines):
@@ -1796,12 +1861,13 @@ def dedupe_evidence(lines):
     return out
 
 
-def k8s_sensor_evidence(variants_l, rule_ids):
+def k8s_sensor_evidence(variants_l, rule_ids, activity_tokens=None):
     """Evidence from the qualys-runtime-sensor pod.
 
     The event payloads live in log FILES inside the pod (and in its stdout).
     Read them with kubectl exec cat (with kubectl logs as fallback - the
-    sensor may SIGKILL the cat, exit 137)."""
+    sensor may SIGKILL the cat, exit 137). Matches policy variants / rule ids
+    and, in v1 mode, activity tokens (base-sensor process_exec visibility)."""
     pods = k8s_sensor_pods()
     if not pods:
         log("[WARN] no qualys-runtime-sensor pod found in namespace qualys")
@@ -1837,7 +1903,8 @@ def k8s_sensor_evidence(variants_l, rule_ids):
                 if not line:
                     continue
                 if not (any(v.lower() in line.lower() for v in variants_l)
-                        or any(rid and rid.lower() in line.lower() for rid in rule_ids)):
+                        or any(rid and rid.lower() in line.lower() for rid in rule_ids)
+                        or (activity_tokens and any(t.lower() in line.lower() for t in activity_tokens))):
                     continue
                 key = line[:200]
                 if key in seen:
@@ -1847,13 +1914,15 @@ def k8s_sensor_evidence(variants_l, rule_ids):
     return evidence
 
 
-def event_matches(line, variants, rule_ids, _depth=0):
+def event_matches(line, variants, rule_ids, activity_tokens=None, _depth=0):
     """Structured JSON attempt, then raw substring fallback.
 
-    Returns (True, dedupe_key) or (False, None).
+    Returns (matched, dedupe_key, kind); kind is 'policy' (policy name /
+    rule id) or 'activity' (base-sensor process_exec visibility token, v1
+    mode). Policy hits win over activity hits when both apply.
     """
     if _depth > 30:
-        return False, None
+        return False, None, None
     key = None
     try:
         ev = json.loads(line)
@@ -1881,20 +1950,43 @@ def event_matches(line, variants, rule_ids, _depth=0):
                         return True
             return False
 
-        if find_policy(ev):
-            return True, key or line
+        # structured: any string field carrying an activity token
+        def find_activity(obj, depth=0):
+            if depth > 30:
+                return False
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    if isinstance(v, str) and any(t in v for t in activity_tokens):
+                        return True
+                    if find_activity(v, depth + 1):
+                        return True
+            elif isinstance(obj, list):
+                for v in obj:
+                    if find_activity(v, depth + 1):
+                        return True
+            return False
+
+        policy_hit = find_policy(ev)
         # correlation_uid == rule id
         cu = (ev.get("metadata") or {}).get("correlation_uid") or ev.get("correlation_uid")
         if cu and cu in rule_ids:
-            return True, key or line
+            policy_hit = True
+        if policy_hit:
+            return True, key or line, "policy"
+        if activity_tokens and find_activity(ev):
+            return True, key or line, "activity"
     except (ValueError, TypeError, AttributeError):
         pass
     # raw substring fallback
     low = line.lower()
     for var in variants:
         if var.lower() in low:
-            return True, key or line
-    return False, None
+            return True, key or line, "policy"
+    if activity_tokens:
+        for tok in activity_tokens:
+            if tok.lower() in low:
+                return True, key or line, "activity"
+    return False, None, None
 
 
 def print_evidence(evidence):
@@ -1974,17 +2066,29 @@ def run_lab(lab, idx, ctx):
         log("waiting %ds for events to settle..." % CFG.settle)
         sleep_check(CFG.settle)
         log("grepping evidence (policy '%s')..." % ((lab["policy"] or {}).get("name") or lab["name"]))
-        evidence = grep_evidence(lab, ctx, lr)
+        evidence, ev_counts = grep_evidence(lab, ctx, lr)
         lr.evidence_count = len(evidence)
         lr.state["evidence_seen"] = len(evidence) > 0
+        lr.state["policy_evidence"] = ev_counts.get("policy", 0)
+        lr.state["activity_evidence"] = ev_counts.get("activity", 0)
         if evidence:
             lr.verdict = "PROVEN"
-            log("  evidence: %d matching event(s)" % len(evidence))
+            log("  evidence: %d matching event(s) (policy-name/rule-id: %d, activity/process_exec: %d)"
+                % (len(evidence), ev_counts.get("policy", 0), ev_counts.get("activity", 0)))
             print_evidence(evidence)
             joined = " ".join(evidence[:50]).lower()
             if ("sigkill" in joined) or ("kill" in joined and "137" in joined) or ("status.*failure" in joined):
                 lr.state["enforcement_observed"] = True
                 log("  enforcement observed (SIGKILL / exit-137 style evidence)")
+            if lab.get("mode") == "v1":
+                if ev_counts.get("activity", 0) > 0 and ev_counts.get("policy", 0) == 0:
+                    lr.note("v1: activity/process_exec evidence only (%d hit(s)) - base-sensor "
+                            "process visibility; no v1 policy payload (v1 has no process-exec "
+                            "base-policy)" % ev_counts.get("activity", 0))
+                elif ev_counts.get("tokens", 0) > 0 and ev_counts.get("activity", 0) == 0:
+                    lr.note("v1: policy-name matches only (%d) - may be operator lifecycle "
+                            "lines; no activity/process_exec hit(s) for %d expected token(s)"
+                            % (ev_counts.get("policy", 0), ev_counts.get("tokens", 0)))
         else:
             lr.verdict = "NOT-PROVEN"
             log("[NOT-PROVEN] hypothesis not verified by events (may be disproven)")
