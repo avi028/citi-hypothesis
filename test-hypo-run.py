@@ -74,6 +74,18 @@ EV4 = '{"policy_name": "other-policy", "metadata": {"uid": "x"}}'
 check("non-match", m.event_matches(EV4, ["citi-h02"], [])[0] is False)
 check("malformed json still matcheable", m.event_matches("{not json with citi-h02 inside", ["citi-h02"], [])[0] is True)
 
+# ---- evidence time window (lab runs must not count a previous run's events) --
+EVW = '{"policy_name": "citi-h02-file-drift", "time": 1793917401000, "metadata": {"uid": "w1"}}'
+check("line_timestamp json ms", m.line_timestamp(EVW) == 1793917401.0)
+check("line_timestamp iso z", m.line_timestamp("2026-11-05T22:23:23.453Z DEBUG x") == 1793917403.453)
+check("line_timestamp none", m.line_timestamp("level=info Adding policy citi-h02") is None)
+check("window excludes older json event", m.event_matches(EVW, ["citi-h02"], [], None, 1793917402.0)[0] is False)
+check("window keeps newer json event", m.event_matches(EVW, ["citi-h02"], [], None, 1793917400.5)[0] is True)
+EVW2 = "2026-11-05T22:23:23.453Z DEBUG 1.8.0-0 Process-exec event payload - {\"policy_name\": \"citi-h03-chain-open\"}"
+check("window excludes older iso line", m.event_matches(EVW2, ["citi-h03-chain-open"], [], None, 1793917404.0)[0] is False)
+check("window keeps newer iso line", m.event_matches(EVW2, ["citi-h03-chain-open"], [], None, 1793917403.0)[0] is True)
+check("window keeps untimestamped line", m.event_matches("level=info Adding policy citi-h03-chain-open", ["citi-h03-chain-open"], [], None, 1793917402.0)[0] is True)
+
 # ---- v1 activity tokens (base-sensor process_exec evidence) -------------------
 at1 = m.pod_activity_tokens(
     {"command": ["sh", "-c", 'MARKER="CITI-H03-$(date +%s)"\ncat > /tmp/citi-h03-chain.sh <<EOF\n#!/bin/sh\necho "chain-marker $MARKER"\nsleep 300 &\nfind /etc -name "*.conf" | head -3\nEOF\nchmod +x /tmp/citi-h03-chain.sh\n/tmp/citi-h03-chain.sh\nsleep 3600']},

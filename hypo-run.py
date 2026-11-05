@@ -122,9 +122,10 @@ import sys
 import tempfile
 import time
 from collections import OrderedDict
+from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -1803,14 +1804,15 @@ def docker_run_pod(lab, lr):
     log("[WARN] container %s never reached running state" % name)
 
 
-def grep_evidence(lab, ctx, lr):
+def grep_evidence(lab, ctx, lr, since=None):
     """Gather evidence for this lab's policy.
 
     k8s backend: sensor pod logs via the k8s API (the lab's events carry the
     policy/rule ids); operator backend: the capture file. In v1 mode the
     policy has no process-exec rule, so we also match activity tokens
     (pod.yaml binaries/scripts + v1 monitor paths) against the base-sensor
-    process_exec stream. Returns (evidence, {"policy": n, "activity": n,
+    process_exec stream. `since` (epoch seconds) windows timestamped lines
+    to this lab's run. Returns (evidence, {"policy": n, "activity": n,
     "tokens": m}) - counts recomputed on the deduped list.
     """
     policy = lab["policy"] or {}
@@ -1833,7 +1835,7 @@ def grep_evidence(lab, ctx, lr):
 
     evidence = []
     if CFG.backend == "k8s":
-        evidence = k8s_sensor_evidence(variants_l, rule_ids, activity_tokens)
+        evidence = k8s_sensor_evidence(variants_l, rule_ids, activity_tokens, since=since)
     if not evidence and os.path.isfile(CFG.events_file):
         cap = CFG.events_file
         try:
@@ -1853,13 +1855,13 @@ def grep_evidence(lab, ctx, lr):
                 continue
             if interrupted():
                 break
-            hit, key, _ = event_matches(line, variants_l, rule_ids, activity_tokens)
+            hit, key, _ = event_matches(line, variants_l, rule_ids, activity_tokens, since=since)
             if hit:
                 evidence.append(line)
     evidence = dedupe_evidence(evidence)
     pol = act = 0
     for line in evidence:
-        _, _, kind = event_matches(line, variants_l, rule_ids, activity_tokens)
+        _, _, kind = event_matches(line, variants_l, rule_ids, activity_tokens, since=since)
         if kind == "policy":
             pol += 1
         elif kind == "activity":
@@ -1886,13 +1888,14 @@ def dedupe_evidence(lines):
     return out
 
 
-def k8s_sensor_evidence(variants_l, rule_ids, activity_tokens=None):
+def k8s_sensor_evidence(variants_l, rule_ids, activity_tokens=None, since=None):
     """Evidence from the qualys-runtime-sensor pod.
 
     The event payloads live in log FILES inside the pod (and in its stdout).
     Read them with kubectl exec cat (with kubectl logs as fallback - the
     sensor may SIGKILL the cat, exit 137). Matches policy variants / rule ids
-    and, in v1 mode, activity tokens (base-sensor process_exec visibility)."""
+    and, in v1 mode, activity tokens (base-sensor process_exec visibility).
+    `since` (epoch seconds) windows timestamped lines to this lab's run."""
     pods = k8s_sensor_pods()
     if not pods:
         log("[WARN] no qualys-runtime-sensor pod found in namespace qualys")
@@ -1927,6 +1930,10 @@ def k8s_sensor_evidence(variants_l, rule_ids, activity_tokens=None):
                 line = line.strip()
                 if not line:
                     continue
+                if since is not None:
+                    ts = line_timestamp(line)
+                    if ts is not None and ts < since:
+                        continue
                 if not (any(v.lower() in line.lower() for v in variants_l)
                         or any(rid and rid.lower() in line.lower() for rid in rule_ids)
                         or (activity_tokens and any(t.lower() in line.lower() for t in activity_tokens))):
@@ -1939,15 +1946,49 @@ def k8s_sensor_evidence(variants_l, rule_ids, activity_tokens=None):
     return evidence
 
 
-def event_matches(line, variants, rule_ids, activity_tokens=None, _depth=0):
+def line_timestamp(line):
+    """Best-effort UTC epoch seconds for an evidence line, else None.
+
+    Handles the sensor log's leading ISO-8601 timestamps
+    (2026-11-05T22:23:23.453Z) and JSON events' epoch-millis 'time' field.
+    """
+    m = re.match(r"^\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|(?:[+-]\d{2}:?\d{2})?))", line)
+    if m:
+        try:
+            ts = m.group(1)
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            return datetime.fromisoformat(ts).timestamp()
+        except ValueError:
+            return None
+    try:
+        ev = json.loads(line)
+        t = ev.get("time")
+        if isinstance(t, (int, float)) and t > 1e12:  # milliseconds
+            return t / 1000.0
+        if isinstance(t, (int, float)):
+            return float(t)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def event_matches(line, variants, rule_ids, activity_tokens=None, since=None, _depth=0):
     """Structured JSON attempt, then raw substring fallback.
 
     Returns (matched, dedupe_key, kind); kind is 'policy' (policy name /
     rule id) or 'activity' (base-sensor process_exec visibility token, v1
-    mode). Policy hits win over activity hits when both apply.
+    mode). Policy hits win over activity hits when both apply. When
+    `since` (epoch seconds) is given, timestamped lines older than it are
+    excluded (evidence window - a lab must not count a previous run's
+    events); lines with no parseable timestamp are kept.
     """
     if _depth > 30:
         return False, None, None
+    if since is not None:
+        ts = line_timestamp(line)
+        if ts is not None and ts < since:
+            return False, None, None
     key = None
     try:
         ev = json.loads(line)
@@ -2073,6 +2114,7 @@ def run_enforce_phase(lab, ctx, lr):
     log("")
     log("=" * 70)
     log("going for the enforcement phase")
+    ef_t0 = time.time()
     log("  removing audit policy + pod")
     k8s_delete_manifest(lab["pod_path"], lr)
     k8s_delete_manifest(lab["policy_path"], lr)
@@ -2125,7 +2167,7 @@ def run_enforce_phase(lab, ctx, lr):
     log("waiting %ds for events to settle..." % CFG.settle)
     sleep_check(CFG.settle)
     log("grepping enforcement evidence (policy '%s')..." % (ef_pol.get("name") or lab["name"]))
-    evidence, ev_counts = grep_evidence(ef_lab, ctx, lr)
+    evidence, ev_counts = grep_evidence(ef_lab, ctx, lr, since=ef_t0)
     lr.state["enforce_evidence"] = len(evidence)
     lr.state["enforce_policy_evidence"] = ev_counts.get("policy", 0)
     lr.state["enforce_activity_evidence"] = ev_counts.get("activity", 0)
@@ -2177,7 +2219,7 @@ def run_lab(lab, idx, ctx):
         log("waiting %ds for events to settle..." % CFG.settle)
         sleep_check(CFG.settle)
         log("grepping evidence (policy '%s')..." % ((lab["policy"] or {}).get("name") or lab["name"]))
-        evidence, ev_counts = grep_evidence(lab, ctx, lr)
+        evidence, ev_counts = grep_evidence(lab, ctx, lr, since=t0)
         lr.evidence_count = len(evidence)
         lr.state["evidence_seen"] = len(evidence) > 0
         lr.state["policy_evidence"] = ev_counts.get("policy", 0)

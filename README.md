@@ -208,7 +208,8 @@ uses `policy-v2.yaml`, `auto` picks by CRS version) via kubectl; **waits for the
 (`RuntimePolicy.status.state = Applied` — the same signal the manual
 `ebpflog.sh` flow checks); applies `pod.yaml` and waits for the workload to
 run; settles; greps the sensor logs for policy/rule-id evidence (deduped,
-capped; in v1 mode also matches activity tokens from pod.yaml so
+capped, **time-windowed to the lab's start** so a previous run's events are
+never counted; in v1 mode also matches activity tokens from pod.yaml so
 process-lab verdicts reflect the base sensor's policy-free `process_exec`
 stream, with policy vs activity/exec hit counts split in the report);
 records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,
