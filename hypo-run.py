@@ -1847,11 +1847,13 @@ def k8s_sensor_evidence(variants_l, rule_ids):
     return evidence
 
 
-def event_matches(line, variants, rule_ids):
+def event_matches(line, variants, rule_ids, _depth=0):
     """Structured JSON attempt, then raw substring fallback.
 
     Returns (True, dedupe_key) or (False, None).
     """
+    if _depth > 30:
+        return False, None
     key = None
     try:
         ev = json.loads(line)
@@ -1863,17 +1865,19 @@ def event_matches(line, variants, rule_ids):
             or ""
         )
         # structured: policy_name anywhere
-        def find_policy(obj):
+        def find_policy(obj, depth=0):
+            if depth > 30:
+                return False
             if isinstance(obj, dict):
                 for k, v in obj.items():
                     if k == "policy_name" and isinstance(v, str):
                         if any(v == var or var in v for var in variants):
                             return True
-                    if find_policy(v):
+                    if find_policy(v, depth + 1):
                         return True
             elif isinstance(obj, list):
                 for v in obj:
-                    if find_policy(v):
+                    if find_policy(v, depth + 1):
                         return True
             return False
 
@@ -2109,11 +2113,13 @@ def detect_stale_policies():
     if not listing:
         return []
     names = [line.strip() for line in listing.splitlines() if line.strip()]
-    if names:
-        log("[WARN] stale policies detected (possibly left by a previous run):")
-        for n in names:
+    # only warn about lab policies (citi-h*), not unrelated cluster policies
+    lab_names = [n for n in names if n.startswith("citi-h")]
+    if lab_names:
+        log("[WARN] stale lab policies detected (possibly left by a previous run):")
+        for n in lab_names:
             log("  - %s" % n)
-    return names
+    return lab_names
 
 
 # --------------------------------------------------------------------------
