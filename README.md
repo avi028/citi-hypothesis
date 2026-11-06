@@ -143,7 +143,7 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 ## Labs
 
 | Lab | Hypothesis | Verdict | CRS |
-|---|---|---|
+| --- | --- | --- |
 | `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.46+ |
 | `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | 1.45+* |
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
@@ -187,7 +187,7 @@ sudo python3 hypo-run.py                          # interactive: pick labs, conf
 Key flags (all also settable via `HYPO_RUN_*` env vars):
 
 | Flag | Meaning |
-|------|---------|
+| ------ | --------- |
 | `--labs 1,3-5,7 / all` | selection (indices are fixed, natural order H01..H20) |
 | `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers |
 | `--policy-mode v1/v2/auto` | policy form; **default v1** (v2 has the process/exec rules), `auto` picks by CRS version |
@@ -233,7 +233,7 @@ Every lab's test workload now starts (see the pod.yaml `runAsNonRoot` fix);
 negative/restricted control pods still fail as intended.
 
 | # | Lab | Verdict | Evidence | Duration |
-|---|-----|---------|----------|----------|
+| --- | ----- | --------- | ---------- | ---------- |
 | 1 | QCS-H01-host-file-access | PROVEN | 4 | 133.7s |
 | 2 | QCS-H02-runtime-file-drift | PROVEN | 20 | 20.5s |
 | 3 | QCS-H03-process-lineage | PROVEN | 3 | 12.4s |
@@ -315,7 +315,7 @@ v1 sweep re-run (2026-11-05, H03/H11/H12/H16/H18/H19,
 `--policy-mode v1 --setup-sensor`, sensor-log evidence, all PROVEN):
 
 | Lab | v1 policy form | policy hits | activity/exec hits | Honest v1 reading |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | H03 | file-open `/tmp/citi-h03-chain.sh` | 2 (lifecycle only) | 2 | chain script exec visible in base stream; exec-flag rule v2-only |
 | H11 | file-open `/usr/bin/id` | 3 (incl. File event) | 3 | `id` exec + file-open detected; capability context v2/raw-TP |
 | H12 | file-open `/usr/bin/bash` | 2 (lifecycle only) | 18 | "in use" proven: bash execs visible; binary rule v2-only |
@@ -339,7 +339,7 @@ platform-only legs or require a cluster. This list is kept in sync with
 the skill (`citi-hypothesis-labs`) so new labs follow the same rule.
 
 | Lab | Execution points NOT covered (live) | Why / where it lives |
-|---|---|---|
+| --- | --- | --- |
 | `QCS-H01-host-file-access` | E1 — restricted-v2 pod denial (live) | `citi-h01-restricted` cannot start on the cluster (`CreateContainerConfigError`) — denial at admission/pod-creation; path-level access denial not demonstrated (RESULT.md E1) |
 | `QCS-H05-east-west-visibility` | S4 — NetworkPolicy (intended-path-only) enforcement | docker has no NetworkPolicy; needs OpenShift (RESULT.md S4) |
 | `QCS-H05-east-west-visibility` | E5 — compare with OpenShift network/app logs | platform log comparison; minikube cluster available for the platform run (RESULT.md E5) |
@@ -365,7 +365,7 @@ One row per hypothesis execution point: the task, the policy that covers
 it, and how it worked. New labs append rows here (skill rule).
 
 | Lab | Point | Task | Policy | How it worked |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | H01 | E1 | Restricted-v2 pod cannot access host path | — (admission) | Not covered live — `citi-h01-restricted` cannot start on the cluster (`CreateContainerConfigError`); path-level denial not demonstrated |
 | H01 | E2 | Elevated pod, hostPath read-only | `pod.yaml` (hostPath `readOnly`) | Cluster: elevated pod ran, reads produced the v2 detection events |
 | H01 | E3 | `ls, stat, cat, sha256sum` on host file | `policy-v2.yaml` v2 `read` (Postfix `/QCS-H01/canary.txt`) | `cat`/`sha256sum` → `vfs_read` events; `ls`/`stat` silent (correct) |
@@ -426,7 +426,7 @@ RESULT.mds; README coverage matrix extended to H19; not-covered rows added.
 Summary of live results (policy → evidence):
 
 | Lab | Evidence |
-|---|---|
+| --- | --- |
 | H07 | blocked attempt (iptables DROP) recorded identically to success |
 | H08 | payload open + upload correlated on same `wget`; contents never captured |
 | H09 | token/namespace opens + API connects; bonus: caught minikube storage-provisioner's real token read |

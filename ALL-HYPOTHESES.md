@@ -30,7 +30,7 @@ Base version: `release/v1.6-1-q5`.
 ### v1 live-test results (verified on the running agent)
 
 | Lab | v1 policies loaded | What fired |
-|---|---|---|
+| --- | --- | --- |
 | H01 | `file-read` | `vfs_read` event on the mounted canary |
 | H02 | 5 file base-policies + `file-write kill` | all 5 hooks fired; enforce → SIGKILL rc=137 |
 | H03 | `file-open` on chain script | open at launch (v1 launch marker) |
@@ -53,7 +53,6 @@ Base version: `release/v1.6-1-q5`.
 - **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only.
 - **Burst fidelity** — forced `rateLimit: 1m` drops repeated events.
 
-
 ## CRS version support (per lab)
 
 - **1.45+** — fully covered by RuntimePolicy **v1** (no v2 needed)
@@ -64,7 +63,7 @@ Base version: `release/v1.6-1-q5`.
   "Future implementation" in the RESULT.md of the affected lab
 
 | Lab | Hypothesis (one line) | Verdict (v2) | CRS | v1 verified |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `QCS-H01-host-file-access` | Container Escape / Host File Access Attempt | **Requires RuntimePolicy v2.** The hypothesis scopes to a specific host file via the v2 `Postfix` operator; v1 has no Postfix (Prefix-only), so v1 cannot determine the host file | 1.46+ | no |
 | `QCS-H02-runtime-file-drift` | Runtime File Drift and Unauthorized Executable Creation | **It works, in both modes.** Every stage of the file's life produced a detection record. I | 1.45+ | yes |
 | `QCS-H03-process-lineage` | Suspicious Process and Parent-Child Process Detection | **Supported, with one honest "partial".** Every launch, every child, every termination was | 1.46+ | yes |
@@ -735,7 +734,7 @@ memory-backed bprm files).
 ### Observed data (v2 run)
 
 | | Case 1: `sh -c` | Case 2: stdin |
-|---|---|---|
+| --- | --- | --- |
 | Interpreter seen | Yes — `/bin/sh` | Yes — `/bin/sh` |
 | Script content visible | **Yes** — the whole script is in the command line | **No** — launch record shows the shell with *no arguments* |
 | Child processes seen | Yes (`cat`, `wget` — with parent = the shell) | Yes (same) |
@@ -1053,7 +1052,7 @@ spec:
 ### Observed data (v2 run)
 
 | Attempt | Recorded? |
-|---|---|
+| --- | --- |
 | Connect to approved port 8080 (success) | Yes — full 5-tuple + process |
 | Connect to port 443 — **connection refused** | Yes — identical record shape |
 | Connect to unreachable IP (times out) | Yes — identical record shape |
@@ -1216,7 +1215,7 @@ spec:
 ### Observed data (v2 run)
 
 | Attempt | Outcome | Event recorded? |
-|---|---|---|
+| --- | --- | --- |
 | Baseline connect | Succeeded | Yes — src/dst/port/process |
 | Same connect under the DROP rule | **Timed out — denied** | **Yes — identical record** |
 
@@ -1589,7 +1588,7 @@ spec:
 ### Observed data (v2 run)
 
 | Hypothesis asks for | Status |
-|---|---|
+| --- | --- |
 | Token-file access recorded | Yes — `security_file_open` event per file opened (`namespace`, `token`) |
 | Executing process on the access | Yes — `binary` (`cat`) + parent (`bash`) on every event |
 | API network connection | Yes — `tcp_connect` egress with full tuple (dst 172.17.0.1:6443) |
@@ -1807,7 +1806,7 @@ spec:
 ### Observed data (v2 run)
 
 | Operation | Event recorded | What it shows |
-|---|---|---|
+| --- | --- | --- |
 | Client reads SA token | `security_file_open` on `…/serviceaccount/token` | `cat` under `bash`, container ID |
 | Authorized query (src ns) | `tcp_connect` → :6443 `TCP_SYN_SENT` | `bash`, dst tuple, container ID |
 | **Denied** query (dst ns) | `tcp_connect` → :6443 `TCP_SYN_SENT` | **identical** to the authorized event |
@@ -1994,7 +1993,7 @@ spec:
 ### Observed data (v2 run)
 
 | | Elevated (A) | Normal (B) |
-|---|---|---|
+| --- | --- | --- |
 | `process.cap.permitted` contains CAP_SYS_ADMIN | **yes** | no |
 | v2 exec-flag event (probe binary) | yes | yes (it watches the binary, not the privilege) |
 | cap-change event (`matchCapabilityChanges`) | **1 event** | **0 events** |
@@ -2641,7 +2640,7 @@ spec:
 ### Observed data (v2 run)
 
 | Operation | Hook | Process (parent) |
-|---|---|---|
+| --- | --- | --- |
 | create (3 files) | `security_inode_create` | bash |
 | write (modify) | `vfs_write` | bash |
 | rename | `security_path_rename` | mv (parent: bash) |
@@ -2775,7 +2774,7 @@ spec:
 ### Observed data (v2 run)
 
 | Phase | Probe result | Pod stability |
-|---|---|---|
+| --- | --- | --- |
 | audit | `CITI-H16-PROBE-RAN`, rc=0 | still alive |
 | enforce | killed at exec, rc=137 | still alive |
 
@@ -3198,7 +3197,7 @@ spec:
 ### Observed data (v2 run)
 
 | Phase | Agent (:54321) | New policy events |
-|---|---|---|
+| --- | --- | --- |
 | baseline | up | 1 |
 | outage | down | **0** (gap) |
 | recovery | up | 1 (resumed) |
@@ -3337,7 +3336,7 @@ spec:
 ### Observed data
 
 | Case | sys_mount event? | Record |
-|---|---|---|
+| --- | --- | --- |
 | `docker run -v` volume mount | **Yes** | bind `source=/tmp/citi-h20-data` → container, `fstype=bind`, `flags=20480`, `ret=0` + full start sequence (overlay/proc/tmpfs/devpts/sysfs/cgroup2/mqueue/shm/resolv/hostname/hosts/netns) |
 | file activity inside mounted volume | **Yes** | v2 `vol-read`: `vfs_read` on `/mnt/citi-h20/seed.txt` and `new.txt` by `/usr/bin/cat` |
 | unprivileged in-container mount (EPERM) | **No** | mount(2) executed (rc=32), no event |
