@@ -43,11 +43,12 @@ the wire — the record always carries the destination address.
 
 ## Caveats for the field
 
-- **v1 rate limit collapses bursts**: v1 `audit` translates to `Post`
-  with `rateLimit: 1m, scope: global` — the pod's five rapid connects
-  produce ~1 `Network Activity` payload (the execs themselves are all in
-  the process stream). Connect *count* is not evidence in v1; a watched
-  connect being recorded is.
+- **v1 rate limit is tunable in the policy**: v1 defaults to `rateLimit:
+  1m, scope: global` — one event per minute, so a burst of connects
+  collapses to a single payload. This lab's `policy-v1.yaml` sets
+  `rate-limit: "1s"`, `rate-limit-scope: "pod"`, and all five connects
+  were recorded (~1/sec). If a deployment wants the quieter default,
+  drop those two fields.
 - **Denied ports are policy-scoped**: a port NOT in the watched list
   produces no event.
 - **The policy matches every workload**: in cluster runs, ambient
@@ -67,7 +68,7 @@ the wire — the record always carries the destination address.
 | S4 | NetworkPolicy allowing only intended path | manifest (platform) | `allow-citi-h05-client` NetworkPolicy ships in `pod.yaml` — enforcement is a platform feature |
 | S5 | Qualys network monitoring policy enabled | `policy-v1.yaml` / `policy-v2.yaml` | egress audit on :8080 (+ :9090 denied leg in v2) |
 | E1 | Baseline connections (source pod → target service) | **YES** (live, v1) | `Network Activity` payload per request |
-| E2 | Repeated TCP/HTTP via service FQDN and ClusterIP | **YES** (live, v1) | connects by name and by resolved IP recorded identically |
+| E2 | Repeated TCP/HTTP via service FQDN and ClusterIP | **YES** (live, v1) | connects by name and by resolved IP recorded — policy `rate-limit: "1s"` keeps each event (default `1m` collapses bursts) |
 | — | Connect via literal IP (no DNS) | **YES** (live, v1) | `10.99.53.90:8080` connect recorded — FQDN + IP complete the picture |
 | E3 | Successful AND denied destination ports | **YES** (live) | watched-port attempts recorded identically — attempt, not outcome |
 | E4 | Source process, source workload, dst IP, port, protocol, namespace | **YES** (live) | `curl`, container, pod + namespace, dst IP, `IPPROTO_TCP` |

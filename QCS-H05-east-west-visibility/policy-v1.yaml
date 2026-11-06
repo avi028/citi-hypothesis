@@ -5,5 +5,8 @@ metadata:
 spec:
   base-policy: net-tcp-open
   action: audit
+  # keep burst events: 1 event/sec per pod instead of the default 1/min global
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-dest-ports:
   - "8080"
