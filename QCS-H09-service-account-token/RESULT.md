@@ -22,16 +22,33 @@ connection; the audit log proves the request and the verdict.
 - Policy: file-open audit under the service-account mount + egress audit
   on the API ports (443/6443)
 - Workload (cluster): a pod with token automount that read the
-  `namespace` and `token` files and connected to an API listener on :6443
+  `namespace` and `token` files, then made **two real API calls** — an
+  authorized one (ConfigMaps in its own namespace) and an unauthorized
+  one (a namespace its SA cannot see — the API answered 403)
 
 ## What we observed
+
+Live on the EC2 cluster (2026-11-06), the sensor captured **all three
+legs of the story with full workload attribution**:
+
+| Step in the attack path | Event recorded | Carried |
+| --- | --- | --- |
+| `cat` the `namespace` file | File-open on the resolved `/run/secrets/kubernetes.io/serviceaccount/namespace` path | binary `cat`, parent `sh`, pod `citi-h09-workload`, ns `citi-h09`, container id |
+| `wc` the `token` file | File-open on `.../serviceaccount/token` | same attribution — **the token read itself is a detection event** |
+| Authorized API call | `Network Activity` connect → `10.96.0.1:443` (kubernetes.default) | binary `curl`, parent `sh`, pod/namespace/workload identity, full socket tuple |
+| Unauthorized API call | **Identical** `Network Activity` connect ~2s later | same attribution |
+
+**22 matching events in 54.1s** (`hypo-run.py --labs 9`, v1 policies —
+PROVEN). Every event joins cleanly: which workload touched the token,
+which process used it, and where it connected — without ever seeing the
+token bytes or the TLS request body.
 
 | Hypothesis asks for | Status |
 | --- | --- |
 | Token-file access recorded | Yes — one open event per file (`namespace`, `token`) |
 | Executing process on the access | Yes — binary + parent on every event |
-| API network connection | Yes — egress `tcp_connect` with full tuple |
-| Workload identity | Container ID on every event; pod/namespace fields under k8s |
+| API network connection | Yes — egress `tcp_connect` with full tuple, both calls |
+| Workload identity | Pod, namespace, workload, container ID on every event |
 | Which API resource / namespace was queried | **No** — request body is inside TLS |
 | Whether the API allowed it | **No** — 200/403 lives only in the API audit log |
 
@@ -50,18 +67,13 @@ connection; the audit log proves the request and the verdict.
 - Correlating token read → API connect → audit-log verdict is a join on
   the event IDs + container ID.
 
-k8s run on the EC2 lab (`hypo-run.py --labs 9`, v1 mode, 2026-11-06):
-**PROVEN** — 22 matching events in 54.1s: file-open events on the SA
-mount + two `Network Activity` connects to the API (~2s apart, authorized
-+ unauthorized calls both recorded).
-
 ## Point-by-point check (original hypothesis)
 
 | # | Point | Status | Evidence |
 | --- | --- | --- | --- |
 | S4 | K8s/OpenShift API audit logs available | **NOT COVERED live** | platform leg |
 | E1 | Read SA namespace + token paths | **YES** | open events on the resolved `/run/...` paths |
-| E2 | Authorized query (own namespace) | **YES** | `tcp_connect` → :6443 with attribution |
+| E2 | Authorized query (own namespace) | **YES** | `Network Activity` connect → `kubernetes.default:443` with attribution |
 | E3 | Unauthorized query (other namespace) | **YES** | identical `tcp_connect` (403 is inside TLS — audit log only) |
 | E4 | Token access / process / API connection / workload identity | **YES** | open events + egress + container id; pod/ns under k8s |
 | E5 | Compare with API audit evidence | **NOT COVERED live** | platform leg |
