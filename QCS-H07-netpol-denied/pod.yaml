@@ -1,10 +1,14 @@
 # QCS-H07 — Network Policy Violation and Denied Connection Attempt
 # CRS version support: 1.45+ — v1 net-tcp-open covers it
 #
-# Two namespaces, a service in the target, and two NetworkPolicy manifests:
-# apply `allow-citi-h07-client` for the baseline, then delete it and apply
-# `default-deny-citi-h07` and repeat the same curl — comparing telemetry
-# for allowed vs denied flows.
+# Two namespaces, a service in the target, and two NetworkPolicy manifests.
+# The toolbox pod automates the whole sequence: it curls the service
+# (baseline, allowed by `allow-citi-h07-client`), deletes that policy via
+# the K8s API (SA token + Role below), then repeats the same curl under
+# `default-deny-citi-h07` — comparing telemetry for allowed vs denied
+# flows. NetworkPolicy ingress rules are unioned, so while the allow
+# policy exists the flow succeeds; once deleted the empty-ingress deny
+# takes over. Both attempts still produce identical tcp_connect events.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -71,6 +75,38 @@ spec:
   policyTypes: ["Ingress"]
   ingress: []
 ---
+# RBAC — lets the toolbox SA delete the allow policy in citi-h07-target so
+# the deny leg needs no manual step.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: citi-h07-toolbox-sa
+  namespace: citi-h07-client
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: citi-h07-netpol-toggle
+  namespace: citi-h07-target
+rules:
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: citi-h07-netpol-toggle
+  namespace: citi-h07-target
+subjects:
+- kind: ServiceAccount
+  name: citi-h07-toolbox-sa
+  namespace: citi-h07-client
+roleRef:
+  kind: Role
+  name: citi-h07-netpol-toggle
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -79,10 +115,45 @@ metadata:
   labels:
     app: citi-h07-toolbox
 spec:
+  serviceAccountName: citi-h07-toolbox-sa
   containers:
   - name: client
     image: registry.access.redhat.com/ubi9/ubi:latest
-    command: ["sh", "-c", "sleep 3600"]
+    command:
+    - sh
+    - -c
+    - |
+      SVC="http://citi-h07-svc.citi-h07-target:8080/"
+      API="https://kubernetes.default.svc"
+      TOKEN=/var/run/secrets/kubernetes.io/serviceaccount/token
+      CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+      # wait for the httpd service (each retry is itself a recorded attempt)
+      echo "CITI-H07: waiting for target service"
+      for i in $(seq 1 60); do
+        curl -m 2 -s -o /dev/null "$SVC" && break
+        sleep 2
+      done
+
+      # E1 baseline — allowed by allow-citi-h07-client (tcp_connect, rc=0)
+      echo "CITI-H07 baseline connect (allowed)"
+      curl -m 5 -s -o /dev/null -w "baseline rc=%{exitcode} http=%{http_code}\n" "$SVC" || true
+
+      # E2 swap allow -> default-deny: delete the allow policy via the API
+      echo "CITI-H07 deleting allow-citi-h07-client"
+      curl -m 5 -s --cacert "$CACERT" -H "Authorization: Bearer $(cat $TOKEN)" \
+        -X DELETE "$API/apis/networking.k8s.io/v1/namespaces/citi-h07-target/networkpolicies/allow-citi-h07-client" || true
+      sleep 5   # let the CNI propagate the deny
+
+      # E3 repeat under default-deny — client times out, tcp_connect still recorded
+      echo "CITI-H07 denied connect (default-deny)"
+      curl -m 5 -s -o /dev/null -w "denied rc=%{exitcode}\n" "$SVC" || true
+
+      # keep attempting — every denied connect still posts an event
+      while true; do
+        curl -m 5 -s -o /dev/null "$SVC" || true
+        sleep 15
+      done
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:
