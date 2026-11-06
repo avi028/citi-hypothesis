@@ -44,6 +44,13 @@ attributed *through the just-created script*.
 k8s run on the EC2 lab (`hypo-run.py --labs 8`, v1 mode, 2026-11-06):
 **PROVEN** — 37 matching events (file + network + exec chain) in 54.3s.
 
+**Rate-limit caveat (verified live):** the v1 `net-tcp-open` policy
+carries `rate-limit: "1s"` scoped to the pod — two connects in the same
+second lose the second event. The workload therefore sleeps 2s between
+the direct upload and the script upload; with that spacing each leg
+produces its own `Network Activity` event (verified: `upload1` and
+`upload2` both recorded).
+
 ## Privacy note (as designed)
 
 The file-open record shows path + permissions only — **file contents are
