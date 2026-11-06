@@ -1,7 +1,7 @@
 # QCS-H06 — Unusual North-South Network Connection
 # CRS version support: 1.45+ — v1 net-tcp-open covers TCP;
-# pod DNS = next release (agent 1.8 logs host-network DNS natively via
-# MSG_OP_QUALYS_DNS; pod-level lookups are not emitted yet)
+# agent 1.8 logs pod DNS to external resolvers natively (MSG_OP_QUALYS_DNS);
+# cluster-internal (kube-dns) DNS = next release
 # Pod that performs: DNS resolution then a TCP/HTTP connection to the
 # approved destination, a second connection to another approved endpoint,
 # and an attempt on a port outside the monitored set for comparison.
@@ -29,12 +29,12 @@ spec:
     - sh
     - -c
     - |
-      APPROVED=approved-http.citi-h06-target.svc.cluster.local
-      # DNS resolution followed by the connection
+      APPROVED=example.com
+      # DNS resolution followed by the north-south (external) connection
       getent hosts "$APPROVED"
-      curl -s -o /dev/null "http://$APPROVED/" || true
-      # second approved test destination
-      curl -s -o /dev/null "http://$APPROVED:8080/" || true
+      curl -s --connect-timeout 3 -o /dev/null "http://$APPROVED/" || true
+      # second approved destination port (443 is in the policy watch list)
+      curl -sk --connect-timeout 3 -o /dev/null "https://$APPROVED:443/" || true
       # attempt on a port outside the approved/monitored set
       curl -s --connect-timeout 2 -o /dev/null "http://$APPROVED:9090/" || true
       sleep 3600

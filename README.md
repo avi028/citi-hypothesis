@@ -132,9 +132,10 @@ lab as `tracingpolicy.yaml`. `ebpf-operator tracingpolicy add` applies it
 verbatim; see `TEMPLATE/tracingpolicy.yaml`. Current labs do not ship raw
 TracingPolicies — the legs that needed them (memfd, cap-change, pod DNS,
 mount syscalls) are recorded in each lab's RESULT.md as **next-release**
-items. Note: agent **1.8 already logs host-network DNS natively**
-(`MSG_OP_QUALYS_DNS` — fqdn + 5-tuple); pod-level DNS is the remaining
-gap.
+items. Note: agent **1.8 already logs DNS natively**
+(`MSG_OP_QUALYS_DNS` — fqdn + answers + src tuple), including pod
+lookups to external resolvers; the kube-dns (cluster-internal) path is
+the remaining gap.
 
 ### Future implementation note
 
@@ -142,9 +143,9 @@ Every hook exercised this way is a candidate for a future v2 rule type or
 field. When a lab can only be expressed with a raw TracingPolicy, record
 the missing field in `RESULT.md` under "Next release" — current gaps
 found by these labs: a `memfd`/`fileless` rule type, `matchBinaries` on
-memory-backed execs, pod-level DNS visibility (host DNS landed in agent
-1.8), a capability-change rule, and a `syscall` rule type for mount
-monitoring.
+memory-backed execs, kube-dns (cluster-internal) DNS visibility
+(external-resolver pod DNS landed in agent 1.8), a capability-change
+rule, and a `syscall` rule type for mount monitoring.
 
 ## Labs
 
@@ -315,8 +316,8 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
   - H04: **memfd fileless exec** — no v1 base-policy; **next release**
     (the raw `tracingpolicy*.yaml` form was removed from the lab).
   - H06: **UDP/DNS** leg — `net-tcp-open` is TCP only; agent 1.8 logs
-    host-network DNS natively (`MSG_OP_QUALYS_DNS`), pod DNS is
-    **next release** (raw `ip_output` form removed from the lab).
+    DNS natively (`MSG_OP_QUALYS_DNS`) for external-resolver lookups —
+    kube-dns is **next release** (raw `ip_output` form removed from the lab).
   - H11: v1 `file-open` on `/usr/bin/id` fires at exec; the
     **capability context** (CAP_SYS_ADMIN) is v2-only, and a dedicated
     cap-change rule is **next release** (raw TP removed).
@@ -384,7 +385,7 @@ the skill (`citi-hypothesis-labs`) so new labs follow the same rule.
 | `QCS-H05-east-west-visibility` | E5 — compare with OpenShift network/app logs | platform log comparison; minikube cluster available for the platform run (RESULT.md E5) |
 | `QCS-H06-north-south` | S3 — OpenShift egress controls (only test dest permitted) | egress policy is a cluster/platform feature — needs OpenShift (RESULT.md S3) |
 | `QCS-H07-netpol-denied` | S2/S5 — real NetworkPolicy + OpenShift network logs | simulated with iptables DROP; needs OpenShift (RESULT.md S2/S5) |
-| `QCS-H08-data-exfil` | DNS leg of the correlation | flow used IPs only; agent 1.8 logs host DNS natively — pod DNS is **next release** (RESULT.md) |
+| `QCS-H08-data-exfil` | DNS leg of the correlation | kube-dns path not emitted; external-resolver pod DNS is logged natively in 1.8 — cluster-internal leg is **next release** (RESULT.md) |
 | `QCS-H09-service-account-token` | S4/E5 — K8s/OpenShift API audit logs | platform leg (RESULT.md S4/E5) |
 | `QCS-H10-cross-ns-rbac` | E3/E5 — API audit logs (403 + SA identity) | platform leg (RESULT.md E3/E5) |
 | `QCS-H11-priv-escalation` | E2 — OpenShift admission/SCC verdicts | platform leg (RESULT.md E2) |
@@ -429,7 +430,7 @@ it, and how it worked. New labs append rows here (skill rule).
 | H05 | E5 | Compare with OpenShift logs | — (platform) | Not covered live — no OpenShift logs in docker lab |
 | H06 | E1 | Baseline to approved app dest | `policy.yaml` egress audit (80/443/8080) | `tcp_connect` → :8080 |
 | H06 | E2 | Approved test dest on selected ports | same | `tcp_connect` → :443 (TLS fails; TCP recorded) |
-| H06 | E3 | DNS then TCP/HTTP | `net-tcp-open` (+ native DNS event — **next release** for pods) | TCP leg recorded; 1.8 logs host DNS natively, pod DNS next release |
+| H06 | E3 | DNS then TCP/HTTP | `net-tcp-open` + native DNS event | both legs recorded — pod DNS to external resolver logged (`example.com` verified); kube-dns is next release |
 | H06 | E4a | Blocked/unlisted port (:9090) | policy-scoped | **NO event** — outside `matchPorts` is invisible |
 | H06 | E4b | Watched port, firewall-dropped | same | client rc=1 (blocked) but `tcp_connect` still recorded |
 | H06 | E5 | addr/port/process/container/action telemetry | event fields | `tcp_connect`, `KPROBE_ACTION_POST`, container id |
@@ -451,7 +452,7 @@ it, and how it worked. New labs append rows here (skill rule).
 | H16 | E1-E5 | Audit → enforce → re-execute → stability | audit + block process rules | rc=0 → rc=137 (SIGKILL at bprm), pod stable |
 | H16 | E6 | Net deact / memdump / pod kill / image blocklist | — (platform) | not runtime-sensor capabilities |
 | H17 | E1-E5 | Sequence, record IDs, delete, search, reconstruct | payload-open + egress | 13 events survive deletion (7 policy-matched) |
-| H18 | E1-E6 | Chain: script→exec→read→DNS→connect→reconstruct | process + file + egress (+ native DNS event — **next release** for pods) | chain joins by exec_id/marker; 1.8 logs host DNS, pod DNS next release; no built-in sequence view |
+| H18 | E1-E6 | Chain: script→exec→read→DNS→connect→reconstruct | process + file + egress (+ kube-dns leg — **next release**) | chain joins by exec_id/marker; 1.8 logs pod DNS to external resolvers, kube-dns next release; no built-in sequence view |
 | H19 | E1-E5 | Health, workloads, interruption, degraded, recovery | probe rule | baseline 1 → outage 0 → recovery 1 |
 
 ## Lab run log
@@ -476,7 +477,7 @@ Summary of live results (policy → evidence):
 | H15 | full FIM lifecycle incl. child re-create |
 | H16 | audit rc=0 → enforce rc=137 (SIGKILL), pod stable |
 | H17 | 13 events survive container deletion (7 policy-matched) |
-| H18 | chain bash→payload→script→cat→connect reconstructs; pod DNS leg is a next-release item (1.8 logs host DNS natively) |
+| H18 | chain bash→payload→script→cat→connect reconstructs; kube-dns leg is next release (1.8 logs pod DNS to external resolvers natively) |
 | H19 | baseline 1 → outage 0 → recovery 1 (agent restarted identically) |
 
 Note: the H19 outage test killed and restarted the agent; it was brought
@@ -494,9 +495,10 @@ What the sensor recorded (policy `citi-h06-north-south`):
   (the attempt, not the outcome — client rc=1 on the dropped one, event still
   posted). Unlisted port :9090 → no event (policy-scoped).
 - Action telemetry present (`KPROBE_ACTION_POST`).
-- The DNS leg (UDP :53): agent 1.8 logs host-network DNS natively
-  (`MSG_OP_QUALYS_DNS`); pod-level DNS is a **next-release** item —
-  the raw policy was removed from the lab.
+- The DNS leg (UDP :53): agent 1.8 logs DNS natively
+  (`MSG_OP_QUALYS_DNS`), including pod lookups to external resolvers —
+  kube-dns (cluster-internal) is the **next-release** gap; the raw
+  policy was removed from the lab.
 
 ### 2026-11-03 — H05 quick run (east-west visibility)
 
