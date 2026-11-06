@@ -31,6 +31,11 @@ platform's view of exactly this cycle.
 | outage | down | **0** (gap) |
 | recovery | up | 1 (resumed) |
 
+EC2 run (`hypo-run.py --labs 19`, v1 mode, 2026-11-06): **PROVEN** —
+9 matching events in 51.5s: the `true` probe's steady exec/file-open
+stream is recorded per-pod, giving the baseline signal a sensor outage
+would visibly interrupt.
+
 ## Mapping to the cluster procedure
 
 | Hypothesis step | Cluster equivalent | Local proof |
