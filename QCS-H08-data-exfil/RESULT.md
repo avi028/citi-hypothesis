@@ -23,17 +23,26 @@ next release (H06/H18 pattern).
 
 - Policy: file-open audit on the payload file + egress audit on the
   receiver port
-- Workload (cluster): uploaded a synthetic file twice — directly, and
-  again via a script written to `/tmp` at runtime
+- Workload (cluster, self-contained): `pod.yaml` ships both ends — an
+  httpd **receiver** (`citi-h08-receiver` service, `citi-h08-recv` ns) and
+  the source pod, which uploads a synthetic file twice — directly, and
+  again via a script written to `/tmp` at runtime. (Earlier revision had
+  no receiver: curl failed at DNS before connect, so the egress leg
+  produced no events.)
 
 ## What we observed
 
-Upload 1 (direct): the `wget` process opened the payload file and
-connected to the receiver — both events on the same PID.
+Upload 1 (direct): `curl` opened the payload file and connected to the
+receiver — the file-open event and the `Network Activity` connect event
+both carry the same process and parent chain (`/usr/bin/sh` script).
 
-Upload 2 (runtime script): `sh` → script → `wget` — same file, same
-destination, same process on both legs, additionally attributed **through
-the just-created script** as the parent.
+Upload 2 (runtime script): `sh` → `/tmp/citi-h08-upload.sh` → `curl` —
+the sensor logged the script exec and then `curl` **with
+`parent=/tmp/citi-h08-upload.sh`**: same file, same destination,
+attributed *through the just-created script*.
+
+k8s run on the EC2 lab (`hypo-run.py --labs 8`, v1 mode, 2026-11-06):
+**PROVEN** — 37 matching events (file + network + exec chain) in 54.3s.
 
 ## Privacy note (as designed)
 
@@ -59,5 +68,5 @@ uploaded bytes. Qualys attributes the transfer without exposing the data.
 | File | Purpose |
 | --- | --- |
 | `policy-v1.yaml` / `policy-v2.yaml` | payload-open file rule + egress audit rule |
-| `pod.yaml` | pod with synthetic payload doing both uploads |
+| `pod.yaml` | receiver (httpd + svc in `citi-h08-recv`) + source pod with synthetic payload doing both uploads |
 | `RESULT.md` | this document |
