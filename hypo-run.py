@@ -125,7 +125,7 @@ from collections import OrderedDict
 from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -492,7 +492,9 @@ def build_cfg(argv=None):
     p.add_argument("--settle", type=int, default=None)
     p.add_argument("--max-log-bytes", type=int, default=None)
     p.add_argument("--max-events", type=int, default=None)
-    p.add_argument("--labs", default=None)
+    p.add_argument("--labs", default=None,
+                   help="selection by hypothesis number (e.g. 1,3-5,7 or all); "
+                        "labs that cannot run in the selected mode report their reason")
     p.add_argument("--backend", default=None,
                    help="execution backend: auto (default), k8s, or operator")
     p.add_argument("--policy-mode", default=None,
@@ -1012,8 +1014,10 @@ def scan_labs(labs_dir):
         d = os.path.join(labs_dir, entry)
         if not os.path.isdir(d) or not NATURAL_RE.match(entry):
             continue
+        hnum_m = re.search(r"H(\d+)", entry)
         lab = {
             "name": entry,
+            "hnum": int(hnum_m.group(1)) if hnum_m else None,
             "dir": d,
             "policy_v2_path": os.path.join(d, "policy-v2.yaml"),
             "policy_v1_path": os.path.join(d, "policy-v1.yaml"),
@@ -1674,23 +1678,26 @@ CONTROL_FAIL_STATES = ("CreateContainerConfigError", "ImagePullBackOff",
                        "ErrImagePull", "CrashLoopBackOff", "ImagePullError")
 
 
-def pod_readiness(statuses, test_pod=""):
+def pod_readiness(statuses, test_pod="", expect_fail=False):
     """Workload readiness from (name, status) pairs: (ready, control_failures).
 
     A negative/control pod (any pod other than the test pod) failing to
     start (CreateContainerConfigError / image errors) is expected and does
-    not weaken the evidence — the test pod being ready is what matters."""
+    not weaken the evidence — the test pod being ready is what matters.
+    expect_fail (enforcement phase): a Failed test pod is the expected
+    outcome — the policy killed it (SIGKILL evidence is checked later)."""
+    ok_states = READY_POD_STATES + (("Failed",) if expect_fail else ())
     if not statuses:
         return False, 0
     test = dict(statuses).get(test_pod, "")
-    if test in READY_POD_STATES:
+    if test in ok_states:
         failures = [(n, s) for n, s in statuses if n != test_pod and s not in READY_POD_STATES]
         if failures and all(s in CONTROL_FAIL_STATES for _, s in failures):
             return True, len(failures)
-    return all(s in READY_POD_STATES for _, s in statuses), 0
+    return all(s in ok_states for _, s in statuses), 0
 
 
-def k8s_apply_pod(lab, lr):
+def k8s_apply_pod(lab, lr, expect_fail=False):
     """Apply pod.yaml via kubectl; deterministic delete-then-apply; wait for
     the workload to actually run before evidence collection."""
     log("  using kubectl apply (deterministic delete-then-apply)")
@@ -1701,9 +1708,13 @@ def k8s_apply_pod(lab, lr):
     statuses = k8s_wait_pod_status(lab, wait_s=wait_budget)
     if statuses:
         test_pod = (lab["pod"] or {}).get("name") or ""
-        ready, ctrl_fail = pod_readiness(statuses, test_pod)
+        ready, ctrl_fail = pod_readiness(statuses, test_pod, expect_fail)
         if ready:
-            log("  workload ready: %s" % "; ".join("%s=%s" % (n, s) for n, s in statuses))
+            if expect_fail and dict(statuses).get(test_pod) == "Failed":
+                log("  workload done: %s — pod Failed as expected (enforcement killed it)"
+                    % "; ".join("%s=%s" % (n, s) for n, s in statuses))
+            else:
+                log("  workload ready: %s" % "; ".join("%s=%s" % (n, s) for n, s in statuses))
             if ctrl_fail:
                 log("    control pod(s) failed to start as expected (negative control)")
         else:
@@ -2198,7 +2209,7 @@ def run_enforce_phase(lab, ctx, lr):
         log("[WARN] enforcement phase requires the k8s backend")
         return False
     log("  applying workload: %s" % lab["enforce_pod_path"])
-    k8s_apply_pod(ef_lab, lr)
+    k8s_apply_pod(ef_lab, lr, expect_fail=True)
     if interrupted():
         return False
     log("")
@@ -2504,25 +2515,35 @@ def main():
             if stale:
                 log("[WARN] consider: ./ebpf-operator tracingpolicy delete <name> --all-rules")
 
-        # phase 2
+        # phase 2 — selection is by hypothesis number (QCS-H01 -> 1), so a
+        # lab that cannot run in the requested mode still shows up when
+        # selected (with its reason) instead of silently remapping
         log("")
         log("== PHASE 2: SELECTION ==")
+        all_labs = runnable + not_runnable
+        by_hnum = {l["hnum"]: l for l in all_labs if l.get("hnum") is not None}
+        for i, lab in enumerate(all_labs):
+            lab["_index"] = lab["hnum"] if lab.get("hnum") is not None else (i + 1)
+            if lab.get("hnum") is None:
+                by_hnum.setdefault(lab["_index"], lab)
         log("runnable labs (%d):" % len(runnable))
-        for i, lab in enumerate(runnable, 1):
-            lab["_index"] = i
-            log("  %2d. %-32s verdict=%s crs=%s mode=%s" % (i, lab["name"], lab["verdict"] or "n/a",
-                                                              lab["crs_version"] or "n/a", lab.get("mode", "v2")))
+        for lab in runnable:
+            log("  %2d. %-32s verdict=%s crs=%s mode=%s" % (lab["_index"], lab["name"],
+                                                              lab["verdict"] or "n/a",
+                                                              lab["crs_version"] or "n/a",
+                                                              lab.get("mode", "v2")))
         if not_runnable:
-            log("not runnable (excluded from selection):")
+            log("not runnable (selectable — will report the reason):")
             for l in not_runnable:
-                log("     - %s: %s" % (l["name"], l["reason"]))
+                log("     - %2d. %s: %s" % (l["_index"], l["name"], l["reason"]))
         if not runnable:
             logerr("[FAIL] no runnable labs — nothing to do")
             exit_reason = "no-runnable-labs"
             return
 
+        max_hnum = max(by_hnum) if by_hnum else len(all_labs)
         try:
-            selected = prompt_selection(len(runnable))
+            selected = prompt_selection(max_hnum)
         except UsageError as e:
             logerr("[FAIL] %s" % e)
             exit_reason = "usage-error"
@@ -2532,16 +2553,24 @@ def main():
             exit_reason = "interrupted"
             raise
 
-        selected_labs = [runnable[i - 1] for i in selected]
+        unknown = [n for n in selected if n not in by_hnum]
+        if unknown:
+            logerr("[FAIL] no lab numbered: %s" % ", ".join(str(n) for n in unknown))
+            exit_reason = "usage-error"
+            return
+        selected_labs = [by_hnum[n] for n in selected]
         log("selected %d lab(s): %s" % (len(selected),
-                                         ", ".join("%d=%s" % (i, runnable[i - 1]["name"]) for i in selected)))
+                                         ", ".join("%d=%s" % (n, by_hnum[n]["name"]) for n in selected)))
         if CFG.dry_run:
             log("")
             log("== DRY-RUN PLAN ==")
-            for i, lab in enumerate(selected_labs, 1):
+            for lab in selected_labs:
+                if not lab["runnable"]:
+                    log("  %2d. %s — %s" % (lab["_index"], lab["name"], lab["reason"]))
+                    continue
                 pod = lab["pod"] or {}
                 rules = ", ".join(r.get("id") or r.get("name") or "?" for r in (lab["policy"] or {}).get("rules") or [])
-                log("  %2d. %s" % (i, lab["name"]))
+                log("  %2d. %s" % (lab["_index"], lab["name"]))
                 log("      policy: %s" % ((lab["policy"] or {}).get("name") or lab["name"]))
                 if rules:
                     log("      rules : %s" % rules)
@@ -2552,52 +2581,59 @@ def main():
             exit_reason = "dry-run"
             return 0
 
-        # phase 3
+        # phase 3 — selection order preserved; not-runnable picks report
+        # their reason; per-lab verdict printed as each finishes
         log("")
         log("== PHASE 3: EXECUTION ==")
-        # run v1 labs on the old CRS (145) and v2 labs on the current CRS (146)
-        groups = OrderedDict()
-        for lab in selected_labs:
-            groups.setdefault(lab.get("mode", "v2"), []).append(lab)
-        _gi = 0
-        for mode, labs_mode in groups.items():
-            if CFG.setup_sensor:
+        cur_mode = None
+        for _gi, lab in enumerate(selected_labs, 1):
+            if interrupted():
+                exit_reason = "interrupted"
+                break
+            log("")
+            log(">>> [%d/%d] lab %s: %s" % (_gi, len(selected_labs), lab["_index"], lab["name"]))
+            if not lab["runnable"]:
+                # selected but cannot run in the requested mode/setup
+                log("  %s" % lab["reason"])
+                lr = LabResult(lab)
+                lr.verdict = "NOT SUPPORTED" if "not supported" in lab["reason"] else "SKIPPED"
+                lr.note(lab["reason"])
+                lr.duration_s = 0.0
+                results.append(lr)
+                continue
+            mode = lab.get("mode", "v2")
+            if CFG.setup_sensor and mode != cur_mode:
+                # run v1 labs on the old CRS (145) and v2 labs on the current CRS (146)
                 crs_dir = CFG.crs_dir_v1 if mode == "v1" else CFG.crs_dir_v2
                 if not install_sensor(crs_dir):
                     log("[WARN] sensor setup for mode %s failed - continuing on current sensor" % mode)
-            for lab in labs_mode:
-                _gi += 1
-                if interrupted():
+            cur_mode = mode
+            if not CFG.yes and has_tty():
+                try:
+                    ans = prompt("  run this lab now? [Y/n] ", default="y")
+                except Abort:
+                    log("aborted at lab confirmation")
                     exit_reason = "interrupted"
                     break
-                log("")
-                log(">>> [%d/%d] lab %d: %s" % (_gi, len(selected_labs), lab["_index"], lab["name"]))
-                if not CFG.yes and has_tty():
-                    try:
-                        ans = prompt("  run this lab now? [Y/n] ", default="y")
-                    except Abort:
-                        log("aborted at lab confirmation")
-                        exit_reason = "interrupted"
-                        break
-                    if str(ans).strip().lower() in ("n", "no"):
-                        log("  skipped by user")
-                        lr = LabResult(lab)
-                        lr.verdict = "SKIPPED"
-                        lr.note("skipped by user at confirmation")
-                        lr.duration_s = 0.0
-                        results.append(lr)
-                        continue
-                lr = run_lab(lab, lab["_index"], None)
-                results.append(lr)
-                left_installed.extend(lr.left_installed)
-                if interrupted():
-                    exit_reason = "interrupted"
-                    break
-                if CFG.fail_fast and lr.verdict in ("SKIPPED", "NOT-PROVEN"):
-                    log("[WARN] --fail-fast: stopping after lab %s (%s)" % (lab["name"], lr.verdict))
-                    exit_reason = "fail-fast"
-                    break
-            if interrupted() or exit_reason != "completed":
+                if str(ans).strip().lower() in ("n", "no"):
+                    log("  skipped by user")
+                    lr = LabResult(lab)
+                    lr.verdict = "SKIPPED"
+                    lr.note("skipped by user at confirmation")
+                    lr.duration_s = 0.0
+                    results.append(lr)
+                    continue
+            lr = run_lab(lab, lab["_index"], None)
+            results.append(lr)
+            left_installed.extend(lr.left_installed)
+            log("<<< lab %s done: %s — %d evidence, %s" % (
+                lab["_index"], lr.verdict, lr.evidence_count, format_duration(lr.duration_s)))
+            if interrupted():
+                exit_reason = "interrupted"
+                break
+            if CFG.fail_fast and lr.verdict in ("SKIPPED", "NOT-PROVEN", "NOT SUPPORTED"):
+                log("[WARN] --fail-fast: stopping after lab %s (%s)" % (lab["name"], lr.verdict))
+                exit_reason = "fail-fast"
                 break
 
         # phase 4

@@ -147,6 +147,9 @@ check("readiness: unexpected failure is weak", m.pod_readiness([("a", "Running")
 check("readiness: empty is weak", m.pod_readiness([], "a") == (False, 0))
 check("readiness: all running w/ unknown test pod name", m.pod_readiness([("b", "Running")], "a") == (True, 0))
 check("readiness: unknown test pod + failure is weak", m.pod_readiness([("b", "Failed")], "a") == (False, 0))
+check("readiness: enforce-phase Failed is expected", m.pod_readiness([("a", "Failed")], "a", expect_fail=True) == (True, 0))
+check("readiness: enforce-phase Failed w/ control ok", m.pod_readiness([("a", "Failed"), ("b", "CreateContainerConfigError")], "a", expect_fail=True) == (True, 1))
+check("readiness: enforce-phase Running still ok", m.pod_readiness([("a", "Running")], "a", expect_fail=True) == (True, 0))
 
 # ---- lab scanning with fake dirs ----------------------------------------------
 tmp = tempfile.mkdtemp(prefix="hypo-test-")
@@ -222,6 +225,7 @@ try:
     check("reason: malformed yaml", "malformed" in reasons.get("QCS-H03-bad-yaml", "").lower() or "yaml" in reasons.get("QCS-H03-bad-yaml", "").lower())
     check("reason: not supported in v1", "not supported in v1" in reasons.get("QCS-H24-v2only", ""))
     check("verdict parsed", runnable[0]["verdict"].startswith("Supported"))
+    check("hnum parsed from lab name", runnable[0]["hnum"] == 2)
     check("policy name parsed", runnable[0]["policy"]["name"] == "citi-h02")
     check("pod image parsed", runnable[0]["pod"]["image"] == "debian:stable-slim")
 
