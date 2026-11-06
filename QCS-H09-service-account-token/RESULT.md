@@ -42,8 +42,18 @@ connection; the audit log proves the request and the verdict.
   policy lists both prefixes (same lesson as H01's mount-path gotcha).
 - `open` fires once per file open — the right signal for "access"; `read`
   would fire per read() call.
+- **v1 `1s`/pod rate limit:** the token reads (`cat`, `wc`) and the two
+  API curls each ran back-to-back, so consecutive hits within 1s were
+  dropped. `pod.yaml` now sleeps between the legs (same fix as QCS-H08);
+  verified live — both API connects recorded ~2s apart, one file event
+  per token-file read.
 - Correlating token read → API connect → audit-log verdict is a join on
   the event IDs + container ID.
+
+k8s run on the EC2 lab (`hypo-run.py --labs 9`, v1 mode, 2026-11-06):
+**PROVEN** — 22 matching events in 54.1s: file-open events on the SA
+mount + two `Network Activity` connects to the API (~2s apart, authorized
++ unauthorized calls both recorded).
 
 ## Point-by-point check (original hypothesis)
 

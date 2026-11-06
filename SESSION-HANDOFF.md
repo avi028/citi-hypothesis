@@ -101,13 +101,11 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 
 ## Working through labs — where we are / what's next
 
-- Done + verified live: H07, H08.
-- **Next: H09-service-account-token.** pod.yaml already self-drives (reads
-  SA token files, then authorized + unauthorized API curls to :443).
-  **Watch for the same 1s/pod rate-limit eating the 2nd connect** — the
-  two API curls are back-to-back; may need `sleep 2` like H08. Policy legs:
-  file-open on the SA token dir + net-tcp-open 443/6443. The 403 verdict
-  itself is TLS-hidden — K8s audit-log leg stays platform.
-- Then H10+ presumably in sequence — apply the same checklist: does
-  pod.yaml generate its own activity? is the target defined in-file? are
+- Done + verified live: H07, H08, H09.
+- **H09 verified (2026-11-06):** PROVEN, 22 events — token opens + both
+  API connects recorded ~2s apart after adding `sleep 1/2` between the
+  reads/curls (commit `c8747ed`). Its pod.yaml already self-drove; only
+  the rate-limit spacing was needed.
+- **Next: H10+ in sequence** — apply the same checklist: does pod.yaml
+  generate its own activity? is the target defined in-file? are
   consecutive connects >1s apart?
