@@ -154,22 +154,23 @@ east-west path precisely.
 
 | Point | Task | Status | Evidence |
 |---|---|---|---|
-| S1 | Source pod with curl + DNS utilities | docker client | alpine `citi-h06-client` (`wget` = busybox curl; `getent` for DNS) |
-| S2 | Approved internal HTTP/DNS test destination | listeners | host listeners :8080 (app), :443 (test dest); DNS via `getent` |
-| S3 | OpenShift egress controls (only test dest permitted) | **NOT COVERED live** | docker has no egress policy; needs OpenShift — platform leg |
-| S4 | Network + DNS monitoring enabled | `policy.yaml` + `tracingpolicy-dns.yaml` | egress audit (80/443/8080) + `ip_output` UDP :53 |
-| S5 | No internet C2 | env note | all traffic loopback/docker-net only — no external dests used |
+| S1 | Source pod with curl + DNS utilities | manifest | `pod.yaml` client pod (`wget`; `getent` for DNS) |
+| S2 | Approved internal HTTP/DNS test destination | service | in-cluster HTTP service + test destination; DNS via `getent` |
+| S3 | OpenShift egress controls (only test dest permitted) | **NOT COVERED live** | egress policy is a cluster/platform feature — needs OpenShift |
+| S4 | Network monitoring enabled | `policy.yaml` / `policy-v1.yaml` | egress audit (80/443/8080); UDP/DNS needs a raw `ip_output` hook — **next release** (raw policy removed) |
+| S5 | No internet C2 | env note | all traffic stays inside the test environment — no external dests used |
 | E1 | Baseline traffic to approved app dest | **YES** (live) | `tcp_connect` → :8080 |
 | E2 | Separate approved test dest, selected ports | **YES** (live) | `tcp_connect` → :443 (TLS fails; TCP recorded) |
-| E3 | DNS resolution then TCP/HTTP | **YES** (live) | 2 `ip_output` UDP :53 events (getent) + `tcp_connect` → :8080 |
+| E3 | DNS resolution then TCP/HTTP | **Partial** | TCP leg recorded; the UDP/DNS leg needs a raw `ip_output` :53 hook — **next release** |
 | E4a | Connection to blocked/unlisted port (:9090) | **YES** (live) | **NO event** — ports outside `matchPorts` are invisible (policy-scoped) |
 | E4b | Connection to watched port, dropped by firewall | **YES** (live) | client timed out (rc=1) but `tcp_connect` **still recorded** — attempt, not outcome |
-| E5 | DNS, dst address, port, process, container, policy-action telemetry | **YES** (live) | `ip_output` (getent) + `tcp_connect` (wget, dst `172.17.0.1`, port, `IPPROTO_TCP`, `KPROBE_ACTION_POST`, container id) |
+| E5 | dst address, port, process, container, policy-action telemetry | **YES** (live) | `tcp_connect` (wget, dst address, port, `IPPROTO_TCP`, `KPROBE_ACTION_POST`, container id); DNS telemetry is **next release** |
 
-**Verdict.** **It works.** Successful, refused, and blackholed connections were all
+**Verdict.** **It works for TCP.** Successful, refused, and blackholed connections were all
 recorded with process + destination attribution. Two honest limits:
 visibility is scoped to the ports the policy watches, and UDP DNS lookups
-are not part of `tcp_connect` telemetry.
+are not covered today — they need a raw `ip_output` hook that is a
+**next-release** item.
 
 **Lab:** `citi-hypothesis/QCS-H06-north-south/` — policies: `policy.yaml` (v2), `policy-v1.yaml` (v1); workload: `pod.yaml`
 

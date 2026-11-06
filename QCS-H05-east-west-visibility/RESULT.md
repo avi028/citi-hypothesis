@@ -66,18 +66,6 @@ comparison). See README "Execution points not covered".
   no working containerSelector — scope by `podSelector` or accept the
   noise; this is a real deployment consideration.
 
-## eBPF-Agent events observed (2026-11-03 quick run)
-
-```json
-{"process_kprobe": {"policy_name": "citi-h05-east-west-v2-east-west-egress", "function_name": "tcp_connect",
- "process": {"binary": "/usr/bin/wget", "docker": "dfd56b3f3564"},
- "args": [{"sock_arg": {"daddr": "172.20.0.2", "dport": 8080, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
-// ... same shape for the denied port:
-{"process_kprobe": {"policy_name": "citi-h05-east-west-v2-east-west-egress", "function_name": "tcp_connect",
- "process": {"binary": "/usr/bin/wget"},
- "args": [{"sock_arg": {"daddr": "172.20.0.2", "dport": 9090, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}]}}
-```
-
 ## Files in this lab
 
 | File | Purpose |
@@ -86,17 +74,3 @@ comparison). See README "Execution points not covered".
 | `pod.yaml` | two namespaces, service + NetworkPolicy + client |
 | `RESULT.md` | this document |
 
-## docker run command used for the local proof
-
-```bash
-docker network create citi-net
-docker run -d --name citi-srv --network citi-net alpine:3 \
-  sh -c 'while true; do printf "HTTP/1.1 200 OK\r\n\r\nok" | nc -l -p 8080; done'
-docker run -d --name citi-client --network citi-net alpine:3 sleep 1800
-docker exec citi-client sh -c 'wget -q -O /dev/null http://citi-srv:8080;
-  wget -q -O /dev/null http://172.19.0.2:8080;
-  wget -q -O /dev/null http://172.19.0.2:8080'
-```
-
-Result: 3 connection events, each with source process, source/destination
-IP, port 8080, protocol, and connect result.

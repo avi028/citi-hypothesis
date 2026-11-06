@@ -1,5 +1,5 @@
 # QCS-H11 — Privilege Escalation Configuration Detection
-# CRS version support: 1.46+ — v2 exec events carry cap context; cap-change rule = future release (raw TP)
+# CRS version support: 1.46+ — v2 exec events carry cap context; cap-change rule = next release (raw TP removed from the lab)
 #
 # One manifest per risky setting, applied SEPARATELY so admission and
 # runtime evidence stay attributable. All pods non-root-hostile EXCEPT the

@@ -22,7 +22,7 @@ Base version: `release/v1.6-1-q5`.
 - v1 file policies auto-add `matchNamespaces: Pid NotIn host_ns` — they
   fire on container opens only, never host opens of the same path.
 - No v1 base-policy for process-exec, capabilities, memfd, DNS/UDP, or
-  custom hooks — those need v2 process rules or raw TracingPolicy.
+  mount syscalls — those need v2 process rules or are next-release items.
 - `ebpf-operator tracingpolicy add` cannot ingest v1 YAML directly — the cluster
   converts it via the v1→v2 webhook; locally, `tools/v1convert` runs the
   same `controllers.Create*Policy` builders to emit the TracingPolicy.
@@ -48,9 +48,11 @@ Base version: `release/v1.6-1-q5`.
 
 - **Process exec / enforcement of exec** — no base-policy (H03, H12,
   H16: exec-block leg v2-only).
-- **Capabilities** (H11) — no capability filter; v2 needs raw TP too.
+- **Capabilities** (H11) — no capability filter; a cap-change rule is
+  next release.
 - **memfd fileless exec** (H04) — no v1 base-policy; **next release** (raw-TP form removed from the lab).
-- **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only.
+- **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only; UDP
+  visibility is **next release** (raw `ip_output` forms removed).
 - **Burst fidelity** — forced `rateLimit: 1m` drops repeated events.
 
 ## CRS version support (per lab)
@@ -58,9 +60,10 @@ Base version: `release/v1.6-1-q5`.
 - **1.45+** — fully covered by RuntimePolicy **v1** (no v2 needed)
 - **1.46+** — requires RuntimePolicy **v2** (process rules, exec context,
   enforcement) — v1 cannot express it
-- **future release** — needs a **raw Cilium TracingPolicy** hook that v2
-  does not have (caps, memfd, UDP/DNS, custom hooks); also recorded under
-  "Future implementation" in the RESULT.md of the affected lab
+- **next release** — needs a **raw Cilium TracingPolicy** hook that v2
+  does not have (caps, memfd, UDP/DNS, mount syscalls); recorded under
+  "Next release" in the RESULT.md of the affected lab (raw-TP forms
+  removed from the labs)
 
 | Lab | Hypothesis (one line) | Verdict (v2) | CRS | v1 verified |
 | --- | --- | --- | --- | --- |
@@ -567,7 +570,7 @@ spec:
 The complete chain, in order:
 
 ```text
-docker exec → sh (the entry point)
+pod start → sh (the entry point)
     └─ /tmp/citi-h03-chain.sh        ← flagged by the policy as suspicious
         ├─ sleep 300                  ← long-lived, later killed → exit recorded
         ├─ find /etc -name *.conf     ← short-lived → exit recorded
@@ -923,7 +926,7 @@ recorded with process + destination attribution. Two honest limits:
 visibility is scoped to the ports the policy watches, and UDP DNS lookups
 are not part of `tcp_connect` telemetry.
 
-**CRS version support: 1.45+** — v1 net-tcp-open covers TCP; UDP/DNS visibility = future release (raw TP)
+**CRS version support: 1.45+** — v1 net-tcp-open covers TCP; UDP/DNS visibility = next release (raw TP removed from the lab)
 
 ### RuntimePolicy v1 — `QCS-H06-north-south/policy-v1.yaml`
 
@@ -970,7 +973,7 @@ spec:
 
 ```yaml
 # QCS-H06 — Unusual North-South Network Connection
-# CRS version support: 1.45+ — v1 net-tcp-open covers TCP; UDP/DNS visibility = future release (raw TP)
+# CRS version support: 1.45+ — v1 net-tcp-open covers TCP; UDP/DNS visibility = next release (raw TP removed from the lab)
 #
 # Pod that performs: DNS resolution then a TCP/HTTP connection to the
 # approved destination, a second connection to another approved endpoint,
@@ -1017,37 +1020,11 @@ spec:
         type: RuntimeDefault
 ```
 
-### Raw Cilium TracingPolicy fallback — `QCS-H06-north-south/tracingpolicy-dns.yaml`
+### Raw Cilium TracingPolicy fallback — removed (next release)
 
-```yaml
-# OPTIONAL raw fallback — DNS lookups are UDP, which tcp_connect never sees.
-# This cilium.io policy audits outbound UDP+TCP datagrams to port 53 on the
-# ip_output hook (same approach as examples/tracingpolicy/dns-only-*.yaml),
-# so the DNS leg of a north-south connection is also recorded.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h06-dns-audit
-spec:
-  kprobes:
-  - call: "ip_output"
-    syscall: false
-    args:
-    - index: 2
-      type: "skb"
-    selectors:
-    - matchArgs:
-      - index: 2
-        operator: "DPort"
-        values:
-        - "53"
-      - index: 2
-        operator: "Protocol"
-        values:
-        - "IPPROTO_UDP"
-      matchActions:
-      - action: Post
-```
+The lab previously shipped `tracingpolicy-dns.yaml` (a raw `ip_output`
+UDP :53 audit for the DNS leg). It cannot be applied in the k8s flow and
+has been **removed — UDP/DNS visibility is a next-release item**.
 
 ### Observed data (v2 run)
 
@@ -1057,11 +1034,11 @@ spec:
 | Connect to port 443 — **connection refused** | Yes — identical record shape |
 | Connect to unreachable IP (times out) | Yes — identical record shape |
 | Connect to port 9090 — **not in the policy list** | No — policy-scoped visibility |
-| DNS lookup (`getent`, UDP to resolver) | Not via tcp_connect — see below |
+| DNS lookup (`getent`, UDP to resolver) | Not via tcp_connect — **next release** (needs a raw `ip_output` hook; raw policy removed) |
 
 ### Observed data (v1 run)
 
-`net-tcp-open` 80/443/8080 → allowed, refused, and blackholed connects all recorded; unlisted :9090 silent. DNS/UDP still raw-TP only.
+`net-tcp-open` 80/443/8080 → allowed, refused, and blackholed connects all recorded; unlisted :9090 silent. DNS/UDP is a **next-release** item.
 
 ---
 
@@ -1833,14 +1810,15 @@ Same v1 pair → authorized, denied, and refused connects all recorded as identi
 setuid binaries), does Qualys flag the elevated runtime context — and can
 it tell an elevated exec from a normal one?
 
-**Verdict.** **Supported for runtime context; the pod-spec admission verdict is a
+**Verdict.** **Covered for runtime context; the pod-spec admission verdict is a
 separate concern.** With `--enable-process-cred`, every exec event carries
 the process's capability sets (`process.cap.permitted/effective`) and
-`binary_properties` (setuid/setgid/file-caps). A raw TracingPolicy
-capability-change hook fired **exactly once — on the container granted
-CAP_SYS_ADMIN, and never on the normal control**.
+`binary_properties` (setuid/setgid/file-caps), so an elevated exec is
+visibly different from a normal one. A dedicated **capability-change
+rule is next release** (needed a raw TracingPolicy hook, removed from
+the lab).
 
-**CRS version support: 1.46+** — v2 exec events carry cap context; cap-change rule = future release (raw TP)
+**CRS version support: 1.46+** — v2 exec events carry cap context; cap-change rule = next release (raw TP removed from the lab)
 
 ### RuntimePolicy v1 — `QCS-H11-priv-escalation/policy-v1.yaml`
 
@@ -1895,7 +1873,7 @@ spec:
 
 ```yaml
 # QCS-H11 — Privilege Escalation Configuration Detection
-# CRS version support: 1.46+ — v2 exec events carry cap context; cap-change rule = future release (raw TP)
+# CRS version support: 1.46+ — v2 exec events carry cap context; cap-change rule = next release (raw TP removed from the lab)
 #
 # One manifest per risky setting, applied SEPARATELY so admission and
 # runtime evidence stay attributable. All pods non-root-hostile EXCEPT the
@@ -1960,35 +1938,12 @@ spec:
         add: ["SYS_ADMIN"]
 ```
 
-### Raw Cilium TracingPolicy fallback — `QCS-H11-priv-escalation/tracingpolicy.yaml`
+### Raw Cilium TracingPolicy fallback — removed (next release)
 
-```yaml
-# Raw Cilium TracingPolicy — capability-change detection, which RuntimePolicy
-# v2 cannot express (no cap rule type). Hooks security_bprm_check and fires
-# only when the exec'd process gains the CAP_SYS_ADMIN effective capability.
-# Future implementation: a v2 `matchCapabilities` rule field.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h11-cap-change
-spec:
-  kprobes:
-  - call: "security_bprm_check"
-    syscall: false
-    return: false
-    args:
-    - index: 0
-      type: "file"
-    selectors:
-    - matchCapabilityChanges:
-      - type: Effective
-        operator: In
-        isNamespaceCapability: false
-        values:
-        - CAP_SYS_ADMIN
-      matchActions:
-      - action: Post
-```
+The lab previously shipped `tracingpolicy.yaml` (a raw
+`security_bprm_check` capability-change hook). It cannot be applied in
+the k8s flow and has been **removed — a capability-change rule is a
+next-release item** (future v2 `matchCapabilities` field).
 
 ### Observed data (v2 run)
 
@@ -1996,12 +1951,14 @@ spec:
 | --- | --- | --- |
 | `process.cap.permitted` contains CAP_SYS_ADMIN | **yes** | no |
 | v2 exec-flag event (probe binary) | yes | yes (it watches the binary, not the privilege) |
-| cap-change event (`matchCapabilityChanges`) | **1 event** | **0 events** |
+| cap-change event | **1 event** (via the raw hook, since removed — **next release**) | **0 events** |
 
-- The exec events carry container id (`docker`), binary, argv; pod/namespace
+- The exec events carry container id, binary, argv; pod/namespace
   fields populate under k8s/OpenShift.
-- The cap-change raw policy fired once for the privileged container and
-  zero times for the control — a clean positive/negative pair.
+- In earlier raw-hook testing the capability-change signal fired once
+  for the privileged container and zero times for the control — a clean
+  positive/negative pair. That raw policy has been removed from the lab;
+  capability-change matching is a **next-release** item.
 
 ### Observed data (v1 run)
 
@@ -2936,11 +2893,12 @@ network connection — rather than showing isolated events?
 the chain as events that **join cleanly** (exec_id/parent_exec_id +
 container id + unique marker) into the exact sequence the hypothesis asks
 for: `bash → create payload+script → script exec → cat reads payload →
-getent DNS (UDP :53) → tcp_connect to :8080`. Whether the *platform UI*
+tcp_connect to :8080` (the DNS leg needs a raw hook — **next release**).
+Whether the *platform UI*
 offers a pre-joined investigation view is a Qualys product question — the
 data to reconstruct it is complete.
 
-**CRS version support: 1.46+** — v2 chain legs; DNS leg = future release (raw TP)
+**CRS version support: 1.46+** — v2 chain legs; DNS leg = next release (raw TP removed from the lab)
 
 ### RuntimePolicy v1 — `QCS-H18-signal-correlation/policy-v1.yaml`
 
@@ -2976,8 +2934,8 @@ spec:
 # Every leg of the chain is a separately-matched signal; the events are
 # joined by exec_id/parent_exec_id + container id + a unique marker
 # (CITI-H18-<n> appears in script and payload names). DNS is UDP —
-# tcp_connect never sees it; the raw tracingpolicy-dns.yaml (ip_output,
-# :53) covers that leg.
+# tcp_connect never sees it; that leg needs a raw ip_output hook and is
+# a next-release item.
 apiVersion: qualys.com/v2
 kind: RuntimePolicy
 metadata:
@@ -3016,7 +2974,7 @@ spec:
 
 ```yaml
 # QCS-H18 — Process, File, and Network Event Correlation
-# CRS version support: 1.46+ — v2 chain legs; DNS leg = future release (raw TP)
+# CRS version support: 1.46+ — v2 chain legs; DNS leg = next release (raw TP removed from the lab)
 #
 # One pod runs the full chain: parent shell creates a runtime script and a
 # synthetic payload, the script reads the payload, resolves an internal
@@ -3061,40 +3019,17 @@ SH
         type: RuntimeDefault
 ```
 
-### Raw Cilium TracingPolicy fallback — `QCS-H18-signal-correlation/tracingpolicy-dns.yaml`
+### Raw Cilium TracingPolicy fallback — removed (next release)
 
-```yaml
-# Raw Cilium TracingPolicy — DNS leg of the correlation chain. Lookups are
-# UDP; ip_output with the skb arg (index 2) on DPort 53 catches the DNS
-# packet. Same shape as H06's verified dns-audit policy.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h18-dns
-spec:
-  kprobes:
-  - call: "ip_output"
-    syscall: false
-    args:
-    - index: 2
-      type: "skb"
-    selectors:
-    - matchArgs:
-      - index: 2
-        operator: "DPort"
-        values:
-        - "53"
-      - index: 2
-        operator: "Protocol"
-        values:
-        - "IPPROTO_UDP"
-      matchActions:
-      - action: Post
-```
+The lab previously shipped `tracingpolicy-dns.yaml` (a raw `ip_output`
+UDP :53 audit covering the DNS leg of the correlation chain). It cannot
+be applied in the k8s flow and has been **removed — UDP/DNS visibility
+is a next-release item**.
 
 ### Observed data (v1 run)
 
-Converted + load-verified (file-open + net-tcp-open; DNS leg stays raw-TP — v1 has no UDP hook).
+Converted + load-verified (file-open + net-tcp-open). The DNS leg needs
+a raw `ip_output` hook — **a next-release item** (v1 has no UDP rule).
 
 ---
 
@@ -3213,53 +3148,32 @@ Converted + load-verified (`file-open` on the health binary).
 ### QCS-H20 — Volume Mount Monitoring in Containers
 
 **Hypothesis.** A Cilium/eBPF-Agent policy can watch volume mounts — both
-the volumes a container receives at start (`docker run -v`) and mounts a
+the volumes a container receives at start and mounts a
 process performs inside a running container — and report who did it, to
 what target, with what filesystem, and whether it succeeded.
 
-**Verdict.** **Partially — and the split is sharp.** The raw `sys_mount`
-kprobe policy captures **every runtime-driven mount at container start**
-(the `-v` volume bind mount, overlay rootfs, proc/devpts/sysfs/cgroup2/
-shm, resolv.conf/hostname/hosts, netns) with source, target, fstype,
-flags and return value. But a `mount(2)` executed by a process **inside a
-running container** produces no event in this build
-(`release/v1.6-1-q5`), even though a kernel-level kprobe on
-`__x64_sys_mount` fires for those calls and `sys_openat`/`vfs_read` events
-from the same process are emitted. RuntimePolicy v2 cannot express the
-mount syscall at all; its file rules do see reads inside mounted volumes.
+**Verdict.** **Partial — and the split is sharp.** **Covered now:** file
+activity **inside mounted volumes** (v2 file rules see reads/creates under
+the mount target). **Next release:** the **mount syscall monitoring**
+itself (the mounts a container runtime performs at container start, and
+mounts issued inside a running container) needed a raw `sys_mount` kprobe
+that RuntimePolicy v2 cannot express — the raw TracingPolicy has been
+removed from the lab; a future v2 `syscall` rule type is the planned path.
+Note: in this build, `mount(2)` executed by a process **inside a running
+container** produced no event even via the raw hook (verified against a
+kernel-level kprobe), while file rules do see reads inside mounted
+volumes.
 
-**CRS version support:** n/a — raw Cilium TracingPolicy (`cilium.io/v1alpha1`)
-syscall hook; v2 has no syscall rule type yet (see "Future implementation").
+**CRS version support:** 1.46+ for the covered part (v2 file rules inside
+mounted volumes); mount-syscall monitoring needs a raw `sys_mount` hook —
+**a next-release item** (v2 has no syscall rule type yet).
 
-### Raw Cilium TracingPolicy — `QCS-H20-volume-mount-monitoring/tracingpolicy.yaml`
+### Raw Cilium TracingPolicy — removed (next release)
 
-```yaml
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: citi-h20-volume-mount-monitoring
-spec:
-  kprobes:
-  - call: "sys_mount"
-    syscall: true
-    return: true
-    message: "mount() called in a container"
-    args:
-    - index: 0
-      type: "string"   # source
-    - index: 1
-      type: "string"   # target
-    - index: 2
-      type: "string"   # filesystemtype
-    - index: 3
-      type: "uint64"   # mountflags
-    returnArg:
-      index: 0
-      type: "int"      # 0 success / negative errno
-    selectors:
-    - matchActions:
-      - action: Post
-```
+The lab previously shipped `tracingpolicy.yaml` (a raw `sys_mount`
+syscall hook capturing source/target/fstype/flags). It cannot be applied
+in the k8s flow and has been **removed — mount-syscall monitoring is a
+next-release item** (v2 has no syscall rule type yet).
 
 ### RuntimePolicy v2 — `QCS-H20-volume-mount-monitoring/policy.yaml`
 
@@ -3335,29 +3249,16 @@ spec:
 
 ### Observed data
 
-| Case | sys_mount event? | Record |
+| Case | Covered today? | Detail |
 | --- | --- | --- |
-| `docker run -v` volume mount | **Yes** | bind `source=/tmp/citi-h20-data` → container, `fstype=bind`, `flags=20480`, `ret=0` + full start sequence (overlay/proc/tmpfs/devpts/sysfs/cgroup2/mqueue/shm/resolv/hostname/hosts/netns) |
-| file activity inside mounted volume | **Yes** | v2 `vol-read`: `vfs_read` on `/mnt/citi-h20/seed.txt` and `new.txt` by `/usr/bin/cat` |
-| unprivileged in-container mount (EPERM) | **No** | mount(2) executed (rc=32), no event |
-| `--cap-add SYS_ADMIN` in-container mount | **No** | mount succeeded, no event |
-| `--privileged` bind of host `/` | **No** | mount succeeded, no event |
-| host-side mount (control) | **Yes** | `tmpfs → /tmp/citi-h20-hostmnt`, `ret=0` |
+| file activity inside mounted volume | **Yes** | v2 `vol-read` fired on reads under `/mnt/citi-h20/` (`seed.txt`, `new.txt`) by `/usr/bin/cat` |
+| container start volume mount (mount syscall) | **No — next release** | needs a raw `sys_mount` hook; removed from the lab |
+| in-container `mount(2)` (privileged or not) | **No — next release** | same raw-hook requirement |
 
-Chase notes: kernel-level kprobe on `__x64_sys_mount` fires for the
-in-container call; the process is in the execve map (nonzero ktime);
-`sys_openat` + `vfs_read` events from the same process are emitted — so the
-drop is in eBPF-Agent's generic-kprobe/tracepoint path for processes in
-container cgroups. `unshare -m` (fresh mount namespace, host cgroup) fires
-fine, so the discriminator is the container cgroup, not the namespace.
-Docker container-id fields are empty in this environment.
-
-Flag experiments (full case set re-run): `--enable-host-ns-filter=false`
-(also with `--enable-pod-ns-filter=false`, `--enable-process-ns`) does
-**not** change coverage — in-container mounts stay silent — but it fixes
-attribution: runtime mounts are then correctly attributed to `/usr/bin/runc`
-(vs `/usr/lib/systemd/systemd` with the default `true`) and host mounts to
-`mount(1)`. `--enable-qualys-sensors` fails to start the agent
-(`bpf_qualys_dnsr.o` load error on this kernel).
+Earlier raw-hook testing also showed that in this build, mounts issued
+*inside* a running container produced no event even through the raw
+kprobe (container-cgroup processes are dropped in the generic-kprobe
+path), while host-side mounts and container-start mounts did fire. That
+gap is recorded for the next-release implementation.
 
 ---

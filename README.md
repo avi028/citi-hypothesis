@@ -102,7 +102,8 @@ v1 differences vs v2 (verified by these labs):
 - file policies auto-add `matchNamespaces: Pid NotIn host_ns` — container
   opens only; host opens of the same path never fire.
 - no v1 base-policy for process-exec (H03), memfd (H04 — next release),
-  or DNS/UDP (H06) — those stay on v2 rules or raw TracingPolicy.
+  or DNS/UDP (H06 — next release) — those stay on v2 rules or are
+  next-release items.
 
 Copy `citi-hypothesis/TEMPLATE/` to start a new lab: write the hypothesis,
 add the policy + pod manifests, run it locally with the docker flow above,
@@ -128,17 +129,19 @@ If a hypothesis needs a syscall/kprobe/tracepoint v2 cannot express —
 e.g. `memfd_create`, `ptrace`, `mount`, UDP `ip_output`, uprobes — ship a
 native **Cilium TracingPolicy** (`apiVersion: cilium.io/v1alpha1`) in the
 lab as `tracingpolicy.yaml`. `ebpf-operator tracingpolicy add` applies it
-verbatim; see `TEMPLATE/tracingpolicy.yaml` and the working example in
-QCS-H06 (UDP `:53`). (QCS-H04's memfd leg used this fallback; the raw-TP
-form was removed from the lab — memfd is a next-release item.)
+verbatim; see `TEMPLATE/tracingpolicy.yaml`. Current labs do not ship raw
+TracingPolicies — the legs that needed them (memfd, cap-change, UDP/DNS,
+mount syscalls) are recorded in each lab's RESULT.md as **next-release**
+items.
 
 ### Future implementation note
 
 Every hook exercised this way is a candidate for a future v2 rule type or
 field. When a lab can only be expressed with a raw TracingPolicy, record
-the missing field in `RESULT.md` under "Future implementation" — current
-gaps found by these labs: a `memfd`/`fileless` rule type, `matchBinaries`
-on memory-backed execs, DNS (UDP) visibility on network rules.
+the missing field in `RESULT.md` under "Next release" — current gaps
+found by these labs: a `memfd`/`fileless` rule type, `matchBinaries` on
+memory-backed execs, DNS (UDP) visibility, a capability-change rule, and
+a `syscall` rule type for mount monitoring.
 
 ## Labs
 
@@ -149,20 +152,21 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
 | `QCS-H04-fileless-exec` | Inline/stdin fileless execution → visible via activity; file-based script is the control | Partial (script body invisible for stdin; memfd fileless = next release) | 1.45+ |
 | `QCS-H05-east-west-visibility` | Cross-namespace connects → full 5-tuple + process + container per event | Supported (pod/ns names need k8s) | 1.45+ |
-| `QCS-H06-north-south` | Outbound connects incl. refused/blackholed → recorded; unlisted ports → not; UDP DNS → needs raw TP | Supported (scoped to watched ports; DNS needs `ip_output` fallback) | `1.45+*` |
+| `QCS-H06-north-south` | Outbound connects incl. refused/blackholed → recorded; unlisted ports → not; UDP DNS → next release | Supported (scoped to watched ports; UDP DNS = next release) | 1.45+ |
 | `QCS-H07-netpol-denied` | Denied connection attempts → still recorded, identical to successes | Supported (attempt ≠ outcome; corroborate with platform logs) | 1.45+ |
-| `QCS-H08-data-exfil` | File read + outbound send correlated on same PID/parent chain, even via runtime script | Supported (contents never captured) | 1.45+ |
+| `QCS-H08-data-exfil` | File read + outbound send correlated on same PID/parent chain, even via runtime script | Supported (contents never captured; DNS leg = next release) | 1.45+ |
 | `QCS-H09-service-account-token` | SA token file open + K8s API egress → both recorded with process + container attribution | Supported (API request/verdict inside TLS → audit log only) | 1.45+ |
 | `QCS-H10-cross-ns-rbac` | Authorized vs unauthorized API calls → identical connect events with attribution | Supported (allow/deny only in K8s audit log) | 1.45+ |
-| `QCS-H11-priv-escalation` | Elevated exec (CAP_SYS_ADMIN) → cap-change event fires once; exec events carry cap sets | Supported (raw TP for caps; admission verdict is SCC's) | `1.46+*` |
+| `QCS-H11-priv-escalation` | Elevated exec (CAP_SYS_ADMIN) → exec events carry cap sets; cap-change rule = next release | Supported (runtime context; admission verdict is SCC's) | 1.46+ |
 | `QCS-H12-vuln-image-in-use` | Vuln package invoked in A → event; present-but-unused in B → none | Partial (runtime "in use" proven; scan leg is platform) | 1.46+ |
 | `QCS-H13-image-lineage-drift` | Post-deploy create/write/open recorded with attribution | Partial (drift proven; digest/layer diff is platform) | 1.45+ |
 | `QCS-H14-file-hash` | No hash fields/operators in events or policies | Not supported (path-only; hash search is platform) | 1.45+ |
 | `QCS-H15-suspicious-filename` | Full FIM lifecycle on Login.jsp/Sql.java/package.json incl. child re-create | Supported | 1.45+ |
 | `QCS-H16-policy-enforcement` | Audit rc=0 → block rc=137 (SIGKILL at exec), pod stable | Supported (net-deact/memdump/pod-kill/image-block = platform) | 1.46+ |
 | `QCS-H17-deleted-pod-retention` | 11 events survive container deletion, searchable by id/marker | Supported (retention window = platform setting) | 1.45+ |
-| `QCS-H18-signal-correlation` | exec → file → read → DNS → connect chain reconstructs from events | Supported at sensor level (joinable; DNS needs raw TP) | 1.46+* |
+| `QCS-H18-signal-correlation` | exec → file → read → DNS → connect chain reconstructs from events | Supported at sensor level (joinable; DNS leg = next release) | 1.46+ |
 | `QCS-H19-sensor-health` | Interruption → event gap; recovery → events resume | Supported (degraded-node UI = platform sensor profile) | 1.45+ |
+| `QCS-H20-volume-mount-monitoring` | File activity inside mounted volumes → recorded; mount syscall monitoring = next release | Partial (mounted-volume reads covered; mount syscall = next release) | 1.46+ |
 
 ## hypo-run — automated lab runner
 
@@ -263,8 +267,9 @@ its budget; the test workloads still ran and produced evidence.
 ### v1 coverage per lab (H01–H20)
 
 **CRS version per lab**: `1.45+` = RuntimePolicy v1 suffices; `1.46+`
-= RuntimePolicy v2 required (process/exec rules); a `*` marks a lab with
-one leg that needs a raw Cilium TracingPolicy hook (future release).
+= RuntimePolicy v2 required (process/exec rules). Legs that need a raw
+Cilium TracingPolicy hook are recorded as **next-release** items in the
+lab's RESULT.md.
 
 Every lab ships `policy-v1.yaml`; live-verified. Where a leg cannot be
 expressed in v1 it is flagged in the lab's policy file and listed here:
@@ -280,24 +285,25 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
     flag** is v2-only (no process base-policy in v1).
   - H04: **memfd fileless exec** — no v1 base-policy; **next release**
     (the raw `tracingpolicy*.yaml` form was removed from the lab).
-  - H06: **UDP/DNS** leg — `net-tcp-open` is TCP only; raw `ip_output`
-    TracingPolicy required (future release).
+  - H06: **UDP/DNS** leg — `net-tcp-open` is TCP only; **next release**
+    (raw `ip_output` form removed from the lab).
   - H11: v1 `file-open` on `/usr/bin/id` fires at exec; the
-    **capability context** (CAP_SYS_ADMIN) is v2/raw-TP only.
+    **capability context** (CAP_SYS_ADMIN) is v2-only, and a dedicated
+    cap-change rule is **next release** (raw TP removed).
   - H12: v1 `file-open` on `/usr/bin/bash` fires when the vulnerable
     package is invoked; the **process rule** that flags the binary is
     v2-only.
   - H16: v1 `file-open` + `action: kill` on the probe script
     **enforces** (probe killed, pod Failed); the **exec-block** that
     keeps the pod stable is a v2 process rule.
-  - H18: file + network legs are v1; the **chain-exec rule** (and the
-    DNS leg) are v2/raw-TP only.
+  - H18: file + network legs are v1; the **chain-exec rule** is
+    v2-only, and the **DNS leg** is **next release** (raw TP removed).
 - **No v1 form**: H01 (host-file read needs the v2 `Postfix` operator to
   scope to the specific host file — v1 `monitor-paths` are Prefix-only, so
   v1 cannot determine the host file; no `policy-v1.yaml`) and H20
-  (volume-mount monitoring — no `policy-v1.yaml`; only the raw syscall
-  TracingPolicy expresses it). Both auto-fall back to `policy-v2.yaml` in
-  v1-default runs (see RESULT.md).
+  (volume-mount monitoring — no `policy-v1.yaml`; mounted-volume file
+  activity is v2, and the mount syscall leg is **next release**). Both
+  auto-fall back to `policy-v2.yaml` in v1-default runs (see RESULT.md).
 
 #### v1 process-visibility evidence (how v1 process labs are judged)
 
@@ -325,7 +331,8 @@ v1 sweep re-run (2026-11-05, H03/H11/H12/H16/H18/H19,
 | H19 | file-open `/usr/bin/true` | 3 (incl. File event) | 4 | health probe's steady exec stream visible — genuinely v1 |
 
 All twenty labs carry verified `policy-v1.yaml` (legacy v1 schema)
-except H20 (no v1 form — raw TracingPolicy only); `ALL-HYPOTHESES.md`
+except H20 (no v1 form — mounted-volume file activity is v2; the mount
+syscall leg is next release); `ALL-HYPOTHESES.md`
 consolidates both policy forms + observed data, plus the three "discuss
 with Qualys" use cases (crypto-mining — mechanism verified in
 `tools/miner-sim.yaml`; package search; unauthorized components).
@@ -342,11 +349,11 @@ the skill (`citi-hypothesis-labs`) so new labs follow the same rule.
 | Lab | Execution points NOT covered (live) | Why / where it lives |
 | --- | --- | --- |
 | `QCS-H01-host-file-access` | E1 — restricted-v2 pod denial (live) | `citi-h01-restricted` cannot start on the cluster (`CreateContainerConfigError`) — denial at admission/pod-creation; path-level access denial not demonstrated (RESULT.md E1) |
-| `QCS-H05-east-west-visibility` | S4 — NetworkPolicy (intended-path-only) enforcement | docker has no NetworkPolicy; needs OpenShift (RESULT.md S4) |
+| `QCS-H05-east-west-visibility` | S4 — NetworkPolicy (intended-path-only) enforcement | NetworkPolicy is a cluster/platform feature — needs OpenShift (RESULT.md S4) |
 | `QCS-H05-east-west-visibility` | E5 — compare with OpenShift network/app logs | platform log comparison; minikube cluster available for the platform run (RESULT.md E5) |
-| `QCS-H06-north-south` | S3 — OpenShift egress controls (only test dest permitted) | docker has no egress policy; needs OpenShift (RESULT.md S3) |
+| `QCS-H06-north-south` | S3 — OpenShift egress controls (only test dest permitted) | egress policy is a cluster/platform feature — needs OpenShift (RESULT.md S3) |
 | `QCS-H07-netpol-denied` | S2/S5 — real NetworkPolicy + OpenShift network logs | simulated with iptables DROP; needs OpenShift (RESULT.md S2/S5) |
-| `QCS-H08-data-exfil` | DNS leg of the correlation | flow used IPs only; add `ip_output` :53 for DNS (RESULT.md) |
+| `QCS-H08-data-exfil` | DNS leg of the correlation | flow used IPs only; UDP/DNS needs a raw `ip_output` :53 hook — **next release** (RESULT.md) |
 | `QCS-H09-service-account-token` | S4/E5 — K8s/OpenShift API audit logs | platform leg (RESULT.md S4/E5) |
 | `QCS-H10-cross-ns-rbac` | E3/E5 — API audit logs (403 + SA identity) | platform leg (RESULT.md E3/E5) |
 | `QCS-H11-priv-escalation` | E2 — OpenShift admission/SCC verdicts | platform leg (RESULT.md E2) |
@@ -391,10 +398,10 @@ it, and how it worked. New labs append rows here (skill rule).
 | H05 | E5 | Compare with OpenShift logs | — (platform) | Not covered live — no OpenShift logs in docker lab |
 | H06 | E1 | Baseline to approved app dest | `policy.yaml` egress audit (80/443/8080) | `tcp_connect` → :8080 |
 | H06 | E2 | Approved test dest on selected ports | same | `tcp_connect` → :443 (TLS fails; TCP recorded) |
-| H06 | E3 | DNS then TCP/HTTP | + `tracingpolicy-dns.yaml` (UDP :53) | 2 `ip_output` events (getent) + `tcp_connect` |
+| H06 | E3 | DNS then TCP/HTTP | `net-tcp-open` (+ raw `ip_output` :53 — **next release**) | TCP leg recorded; UDP/DNS needs a raw hook — next release |
 | H06 | E4a | Blocked/unlisted port (:9090) | policy-scoped | **NO event** — outside `matchPorts` is invisible |
 | H06 | E4b | Watched port, firewall-dropped | same | client rc=1 (blocked) but `tcp_connect` still recorded |
-| H06 | E5 | DNS/addr/port/process/container/action telemetry | event fields | `ip_output`+`tcp_connect`, `KPROBE_ACTION_POST`, container id |
+| H06 | E5 | addr/port/process/container/action telemetry | event fields | `tcp_connect`, `KPROBE_ACTION_POST`, container id |
 | H07 | E1-E4 | Allow baseline, default-deny, repeat, compare | `policy.yaml` egress :8080 | blocked attempt rc=1 but `tcp_connect` identical to success |
 | H07 | E5 | Attempt vs success vs no event | same | attempt reported; outcome not (H06/H07 pattern) |
 | H08 | E1-E4 | Read payload, upload, repeat via script, correlate | `payload-open` + `egress-audit` | open+connect on same `wget`; script chains as parent |
@@ -403,7 +410,7 @@ it, and how it worked. New labs append rows here (skill rule).
 | H09 | E5 | Compare with API audit logs | — (platform) | not covered live |
 | H10 | E1-E4 | Allowed + denied cross-ns API ops | same pair | token open + identical connects (authorized/denied/refused) |
 | H10 | E5 | Audit logs for SA + authz result | — (platform) | not covered live |
-| H11 | E1-E4 | Risky configs submitted; runtime context validated | v2 process rule + raw cap-change TP | execs flagged; cap-change fires on cap transitions (blunt: not a clean "gained" filter) |
+| H11 | E1-E4 | Risky configs submitted; runtime context validated | v2 process rule (+ cap-change hook — **next release**) | execs flagged; capability-change matching needs a raw hook — next release |
 | H11 | E5 | Admission vs runtime distinction | — (platform) | admission = SCC/OpenShift; runtime = exec events |
 | H12 | E1-E4 | Scan, deploy, invoke in A not B, compare | v2 process rule on bash | A: 1 event; B: 0 — in-use signal |
 | H12 | E5 | Image/pkg/version/remediation metadata | — (platform) | scan leg not covered live |
@@ -413,7 +420,7 @@ it, and how it worked. New labs append rows here (skill rule).
 | H16 | E1-E5 | Audit → enforce → re-execute → stability | audit + block process rules | rc=0 → rc=137 (SIGKILL at bprm), pod stable |
 | H16 | E6 | Net deact / memdump / pod kill / image blocklist | — (platform) | not runtime-sensor capabilities |
 | H17 | E1-E5 | Sequence, record IDs, delete, search, reconstruct | payload-open + egress | 13 events survive deletion (7 policy-matched) |
-| H18 | E1-E6 | Chain: script→exec→read→DNS→connect→reconstruct | process + file + egress + raw DNS TP | full chain joins by exec_id/marker; no built-in sequence view |
+| H18 | E1-E6 | Chain: script→exec→read→DNS→connect→reconstruct | process + file + egress (+ DNS hook — **next release**) | chain joins by exec_id/marker; DNS leg needs a raw hook — next release; no built-in sequence view |
 | H19 | E1-E5 | Health, workloads, interruption, degraded, recovery | probe rule | baseline 1 → outage 0 → recovery 1 |
 
 ## Lab run log
@@ -431,14 +438,14 @@ Summary of live results (policy → evidence):
 | H08 | payload open + upload correlated on same `wget`; contents never captured |
 | H09 | token/namespace opens + API connects; bonus: caught minikube storage-provisioner's real token read |
 | H10 | authorized/denied/refused connects — identical events |
-| H11 | execs flagged; cap-change TP fires on transitions (blunt caveat) |
+| H11 | execs flagged; capability-change matching is a next-release item |
 | H12 | A: 1 bash event, B: 0 — in-use signal |
 | H13 | drift create/write/open fully recorded |
 | H14 | path-only; no hash fields (not supported — blunt) |
 | H15 | full FIM lifecycle incl. child re-create |
 | H16 | audit rc=0 → enforce rc=137 (SIGKILL), pod stable |
 | H17 | 13 events survive container deletion (7 policy-matched) |
-| H18 | chain bash→payload→script→cat→DNS(8)→connect reconstructs |
+| H18 | chain bash→payload→script→cat→connect reconstructs; DNS leg is a next-release item |
 | H19 | baseline 1 → outage 0 → recovery 1 (agent restarted identically) |
 
 Note: the H19 outage test killed and restarted the agent; it was brought
@@ -450,21 +457,14 @@ back with the same args (`--bpf-lib bpf/objs --export-filename
 Change done: H06 RESULT point table (S1–S5, E1–E5) + observed events;
 README matrix rows + not-covered row (S3).
 
-eBPF-Agent events observed (policy `citi-h06-north-south` + `citi-h06-dns-audit`):
+What the sensor recorded (policy `citi-h06-north-south`):
 
-```json
-{"process_kprobe": {"policy_name": "citi-h06-north-south-v2-egress-audit", "function_name": "tcp_connect",
- "process": {"binary": "/usr/bin/wget", "docker": "f584bb99436f"},
- "args": [{"sock_arg": {"daddr": "172.17.0.1", "dport": 8080, "protocol": "IPPROTO_TCP", "state": "TCP_SYN_SENT"}}],
- "action": "KPROBE_ACTION_POST"}}
-{"process_kprobe": {"policy_name": "citi-h06-dns-audit", "function_name": "ip_output", "process": {"binary": "/usr/bin/getent"}}}
-```
-
-- Baseline :8080, test dest :443, DNS+connect, and firewall-dropped :8080 all
-  recorded (attempt, not outcome — client rc=1 on the dropped one, event still
-  posted). Unlisted port :9090 → no event (policy-scoped, blunt).
+- Baseline :8080, test dest :443, and firewall-dropped :8080 all recorded
+  (the attempt, not the outcome — client rc=1 on the dropped one, event still
+  posted). Unlisted port :9090 → no event (policy-scoped).
 - Action telemetry present (`KPROBE_ACTION_POST`).
-- Policy + DNS TP + container + network + listeners deleted after the run.
+- The DNS leg (UDP :53) needed a raw `ip_output` hook — **now a
+  next-release item; the raw policy was removed from the lab**.
 
 ### 2026-11-03 — H05 quick run (east-west visibility)
 

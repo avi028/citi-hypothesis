@@ -8,98 +8,66 @@ it tell an elevated exec from a normal one?
 
 ## Verdict
 
-**Supported for runtime context; the pod-spec admission verdict is a
-separate concern.** With `--enable-process-cred`, every exec event carries
-the process's capability sets (`process.cap.permitted/effective`) and
-`binary_properties` (setuid/setgid/file-caps). A raw TracingPolicy
-capability-change hook fired **exactly once — on the container granted
-CAP_SYS_ADMIN, and never on the normal control**.
+**Covered now: the runtime context.** Every exec event carries the
+process's capability sets (what the process is allowed to do) and
+`binary_properties` (setuid/setgid), so an elevated exec is visibly
+different from a normal one — the exec of the probe binary was flagged,
+and the capability data distinguishes the elevated pod from the control.
+
+**Next release:** a dedicated capability-change rule (filter on
+CAP_SYS_ADMIN changes) needs a raw TracingPolicy hook that v2 cannot
+express — the raw-TP file has been removed from the lab; a v2
+`matchCapabilities` field is the future-release path.
+
+**Not covered (platform):** whether OpenShift *admits* the pod (SCC
+verdicts) is admission data — Qualys evidence is the runtime context of
+what actually ran.
 
 ## What we did
 
-- Policy: a v2 process rule flags exec of the probe binary (`id`); a raw
-  `tracingpolicy.yaml` adds `matchCapabilityChanges: Effective In
-  [CAP_SYS_ADMIN]` on `security_bprm_check` (v2 has no capability rule type)
-- Workload A: `docker run --cap-add=SYS_ADMIN debian id`
-- Control B: `docker run debian id` (default caps, no SYS_ADMIN)
+- Policy: process rule flags exec of the probe binary; the elevated pod
+  adds CAP_SYS_ADMIN, the control pod is fully restricted
+- Workload (cluster): both pods ran the probe (`id`); the elevated one
+  with root + CAP_SYS_ADMIN, the control with dropped caps
 
 ## What we observed
 
-| | Elevated (A) | Normal (B) |
-|---|---|---|
-| `process.cap.permitted` contains CAP_SYS_ADMIN | **yes** | no |
-| v2 exec-flag event (probe binary) | yes | yes (it watches the binary, not the privilege) |
-| cap-change event (`matchCapabilityChanges`) | **1 event** | **0 events** |
+| | Elevated (root + CAP_SYS_ADMIN) | Normal (restricted control) |
+| --- | --- | --- |
+| Capability sets on the exec event contain CAP_SYS_ADMIN | yes | no |
+| Exec of the probe binary flagged | yes | yes (the rule watches the binary, not the privilege) |
 
-- The exec events carry container id (`docker`), binary, argv; pod/namespace
-  fields populate under k8s/OpenShift.
-- The cap-change raw policy fired once for the privileged container and
-  zero times for the control — a clean positive/negative pair.
+The exec events carry the container, binary, and command line; pod and
+namespace fields populate under k8s.
 
 ## Caveats
 
-- **v2 cannot filter on capabilities** — a cap-based rule needs the raw
-  TracingPolicy (Future implementation: a v2 `matchCapabilities` field).
-- **Admission vs runtime is two different systems.** Whether OpenShift
-  *admits* the pod (SCC: anyuid, SYS_ADMIN, privileged) is recorded by
-  OpenShift admission; the Qualys evidence is the *runtime context* of
-  what actually ran. Correlate SCC admission audit with the exec events.
-- `security_bprm_check` policy events attribute the exec'ing process
-  host-side for a container's *first* process (runc context); the paired
-  `process_exec` event carries the container id — join on exec_id.
-- Risky *config* dimensions in the hypothesis (root UID, added caps,
-  allowPrivilegeEscalation, hostPID, privileged) are all visible via the
-  same mechanism: root uid → `process.uid`, caps → `process.cap`, and
-  hostPID/privileged pods show namespace fields on events.
-
-## Future implementation
-
-A v2 `matchCapabilities`/`matchCapabilityChanges` rule field (today only
-via raw TracingPolicy).
+- v2 cannot filter on capabilities — a cap-based rule is a next-release
+  item (raw TracingPolicy removed from the lab).
+- Admission vs runtime are two different systems: whether the pod is
+  *admitted* is OpenShift/SCC data; the Qualys evidence is the *runtime
+  context* of what actually ran. Correlate the SCC admission audit with
+  the exec events.
+- The risky *config* dimensions (root UID, added caps, privileged,
+  hostPID) are all visible the same way: uid → process identity, caps →
+  capability sets, privileged/hostPID → namespace fields on events.
 
 ## Point-by-point check (original hypothesis)
 
 | # | Point | Status | Evidence |
-|---|---|---|---|
-| E1 | Submit each risky config separately | manifests | `pod.yaml` (restricted control + SYS_ADMIN/root elevated) |
+| --- | --- | --- | --- |
 | E2 | Record whether OpenShift admits/rejects | **NOT COVERED live** | admission is platform/SCC data |
-| E3 | Harmless identity/process checks on admitted pods | **YES** | `id` runs in both containers |
-| E4 | Risky config + runtime context identified | **YES** | v2 rule flags the execs; raw cap-change TP fires on cap transitions at exec |
-| E5 | Distinguish admission vs runtime findings | **YES** (blunt) | admission = OpenShift/SCC (platform); runtime = the exec events — two different systems |
-
-**Blunt caveat:** the raw `matchCapabilityChanges` TP fires on cap *transitions*
-(gain AND loss — e.g. runc container-init transitions), so it is NOT a precise
-"this exec gained CAP_SYS_ADMIN" filter in this environment; `process.cap`
-fields on exec events require `--enable-process-cred` (verified Oct 30 with
-the flag; current agent runs without it).
-
-## eBPF-Agent events observed (2026-11-03 run)
-
-```json
-{"process_kprobe": {"policy_name": "citi-h11-priv-escalation-v2-elevated-exec", "function_name": "security_bprm_check",
- "process": {"binary": "/usr/lib/systemd/systemd"}, "args": [{"linux_binprm_arg": {"path": "/usr/bin/id"}}]}}
-{"process_kprobe": {"policy_name": "citi-h11-cap-change", "function_name": "security_bprm_check",
- "process": {"binary": "/usr/lib/systemd/systemd"}, "args": [{"linux_binprm_arg": {"path": "/ (deleted)"}}]}}
-```
+| E3 | Harmless identity/process checks on admitted pods | **YES** | probe runs in both pods |
+| E4 | Risky config + runtime context identified | **YES** (partial) | exec events carry caps/uid; cap-change rule = next release |
+| E5 | Distinguish admission vs runtime findings | **YES** (blunt) | admission = OpenShift/SCC (platform); runtime = the exec events |
 
 ## Files in this lab
 
 | File | Purpose |
-|---|---|
-| `policy.yaml` | v2 process rule on the probe binary (audit) |
-| `tracingpolicy.yaml` | raw cap-change hook on `security_bprm_check` |
-| `policy-v1.yaml` | v1 has no capability base-policy; closest is file-open on the probe binary |
-| `pod.yaml` | restricted control + SYS_ADMIN/root elevated pods (one risky setting at a time) |
+| --- | --- |
+| `policy-v1.yaml` / `policy-v2.yaml` | process rule on the probe binary (v1: file-open approximation) |
+| `pod.yaml` | restricted control + SYS_ADMIN/root elevated pods |
 | `RESULT.md` | this document |
 
-## docker run command used for the local proof
-
-```bash
-./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/policy.yaml
-./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H11-priv-escalation/tracingpolicy.yaml
-docker run --rm --cap-add=SYS_ADMIN debian:stable-slim id   # elevated
-docker run --rm debian:stable-slim id                        # control
-```
-
-Result: 1 cap-change event (elevated only); exec events show
-`CAP_SYS_ADMIN` in permitted caps for A, absent for B.
+`tracingpolicy.yaml` (cap-change hook) was removed — capability-change
+rules are a next-release item.
