@@ -24,11 +24,17 @@ drift *by definition*.
 
 ## What we observed
 
-All three operations fired with full attribution:
+All three operations fired with full attribution (path + process +
+container + pod/namespace + timestamp):
 
 - create — dir/files created
 - write — both files written
 - open — including the read-back
+
+EC2 run (`hypo-run.py --labs 13`, v1 mode, 2026-11-06): **PROVEN** —
+13 matching events in 54.2s across both pods' monitored dirs. The
+workload sleeps 1s between `mkdir` and the file write so the v1
+`1s`/pod file-create rate limit keeps each event.
 
 ## The image vs runtime split
 
