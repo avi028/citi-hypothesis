@@ -1,77 +1,206 @@
-# citi-hypothesis labs
+<div align="center">
 
-Self-contained labs that prove (or disprove) Qualys runtime-detection
-hypotheses against a live eBPF-Agent agent. Each lab ships a policy, a
-workload manifest, and a recorded result.
+# 🔬 CRS 2.0 — Runtime-Detection Hypothesis Book
 
-**Base version: `release/v1.6-1-q5`** — all labs are verified on this
-branch. `setup.sh` warns if you run from a different branch.
+### Twenty self-contained labs proving what the Qualys runtime sensor detects on Kubernetes
+
+[![Labs](https://img.shields.io/badge/hypothesis%20labs-20-0969DA)](#labs)
+[![Verified](https://img.shields.io/badge/live%20verified-20%2F20%20PROVEN-2DA44E)](#verified-results)
+[![CRS v1](https://img.shields.io/badge/CRS%201.45-v1%20policies-8250DF)](#policy-modes-v1-default-v2-auto)
+[![CRS v2](https://img.shields.io/badge/CRS%201.46%2B-v2%20policies-B54708)](#policy-modes-v1-default-v2-auto)
+[![Backend](https://img.shields.io/badge/backend-Kubernetes%20API-1B7C83)](#running-the-labs)
+
+</div>
+
+---
+
+Each lab ships a policy, a workload manifest, and a recorded result —
+`QCS-H01` through `QCS-H20`, each proving (or disproving) one
+runtime-detection hypothesis against a live Kubernetes cluster running
+the Qualys runtime sensor.
+
+**Status:** H02–H19 verified **PROVEN** on a live cluster in v1 mode
+(CRS 1.45). H01 and H20 are v2-only (CRS 1.46). See
+[Verified results](#verified-results).
+
+## Running the labs
+
+Everything runs through `hypo-run.py` — a self-contained runner (Python
+stdlib only, no kubectl/helm/docker dependencies; it talks to the
+cluster through the Kubernetes REST API: kubeconfig auth, CRD create and
+status polling, pod logs, a minimal WebSocket exec client). Run it from
+any host with admin access to the cluster.
+
+### Prerequisites
+
+- A Kubernetes cluster with the Qualys runtime sensor deployed —
+  validated on single-node k8s v1.28.15, sensor agent 1.8.0-0:
+  - **CRS 1.45** serves `qualys.com/v1` policies (v1 mode)
+  - **CRS 1.46+** is required for v2 policies (process/exec rules —
+    needed by H01, H20, and several v2-only legs)
+- Credentials able to create `RuntimePolicy` CRs, pods and namespaces,
+  and read sensor pod logs in the `qualys` namespace
+- Python 3 for `hypo-run.py` (`sudo` on the cluster host; `--no-sudo`
+  opts out)
+
+### Run modes
+
+**Dry run — plan only, zero side effects:**
 
 ```bash
-tar xzf citi-hypothesis.tar.gz        # unpack inside the ebpf-agent repo root
-cd ebpf-agent
-sudo citi-hypothesis/setup.sh         # checks env, builds, starts agent + capture
+sudo python3 hypo-run.py --dry-run               # preflight + plan for every lab
+sudo python3 hypo-run.py --dry-run --labs 7      # plan just H07
 ```
 
-## Prerequisites
-
-- Linux host with root access (`sudo`)
-- docker
-- Go toolchain
-- Built BPF objects: `make ebpf-agent-bpf-local LOCAL_CLANG=1` (once per
-  checkout/kernel)
-
-## E2E test loop (no cluster needed)
-
-Every hypothesis is validated with this 5-stage loop — real agent, real
-kernel hooks, real workload, real events:
-
-```text
-stage 1  ebpf-agent agent running            (setup.sh or manual, on :54321)
-stage 2  ebpf-operator getevents -o json >> events.jsonl   (background capture)
-stage 3  ./ebpf-operator tracingpolicy add <lab>/policy.yaml
-stage 4  docker run/exec <workload>        (generates the activity)
-stage 5  grep the capture file → verify policy_name, binary, args,
-         parent, docker id, sock tuple, action
-```
-
-The capture file is the single source of truth for the result: an
-execution point is "covered" only when its evidence appears there. No
-cluster, no platform — the sensor path is exercised end-to-end.
-
-## Quickstart
+**Normal run (default) — execute the lab, review in the Qualys UI:**
 
 ```bash
-sudo citi-hypothesis/setup.sh        # checks env, builds, starts ebpf-agent + capture
+sudo python3 hypo-run.py --labs 2 --yes          # run H02
+sudo python3 hypo-run.py --labs 2-8 --yes        # run H02 through H08
+sudo python3 hypo-run.py --labs all --yes        # every lab supported by the mode
+```
 
-# run a lab
-./ebpf-operator tracingpolicy add citi-hypothesis/QCS-H02-runtime-file-drift/policy.yaml
-docker run --rm debian:stable-slim sh -c 'mkdir -p /tmp/citi-h02 && echo x > /tmp/citi-h02/a'
-tail /tmp/citi-labs/events.jsonl     # detection records land here
+Each lab applies its policy, waits for the approval gate
+(`RuntimePolicy.status.state = Applied`), applies the workload pod,
+settles, cleans up, and reports `FINISHED`. Detection events are then
+reviewed in the Qualys UI — normal mode does not read sensor logs or
+print a verdict.
 
+**Debug run — evidence grep + a verdict per lab:**
+
+```bash
+sudo python3 hypo-run.py --labs 8 --yes --debug
+sudo python3 hypo-run.py --labs all --yes --debug --log-file run.log
+```
+
+`--debug` adds verbose logging plus the evidence stage: it greps the
+sensor pod's log for policy-name / rule-id / workload-activity matches
+(time-windowed to the lab, so a previous run's events are never
+counted), prints a per-lab verdict (**PROVEN / NOT-PROVEN / SKIPPED /
+ABORTED**), and the consolidated `hypo-run-<ts>.{json,md}` reports carry
+the evidence counts. Use it when you want machine-checked evidence
+rather than a UI review.
+
+**Interactive:** `sudo python3 hypo-run.py` — pick labs, confirm each.
+
+### Policy modes: v1 (default), v2, auto
+
+`--policy-mode` selects which policy file each lab applies:
+
+| Mode | Policy file | When |
+| --- | --- | --- |
+| `v1` (default) | `policy-v1.yaml` | CRS 1.45 — file + network detections |
+| `v2` | `policy-v2.yaml` | CRS 1.46 — adds process/exec rules; required for H01 and H20 |
+| `auto` | per lab | picks the form by each lab's minimum CRS version |
+
+```bash
+sudo python3 hypo-run.py --labs 1 --yes                     # H01 -> "not supported in v1"
+sudo python3 hypo-run.py --labs 1 --yes --policy-mode v2    # H01 runs (v2-only lab)
+sudo python3 hypo-run.py --labs all --yes --policy-mode v2  # v2 sweep
+sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor
+```
+
+- A lab whose policy form is missing reports `not supported in v1/v2`
+  instead of silently switching (H01 and H20 have no v1 form).
+- `--setup-sensor` reinstalls the sensor chart for the mode
+  (v1 → CRS 1.45, v2 → CRS 1.46). Only use it when you want a sensor
+  restart — if the sensor already runs the right version, leave it off.
+
+### Running a lab manually (kubectl)
+
+```bash
+kubectl apply -f citi-hypothesis/QCS-H08-data-exfil/policy-v1.yaml
+# wait for the approval gate — the same signal hypo-run polls:
+kubectl get runtimepolicy <policy-name> -o jsonpath='{.status.state}'   # -> Applied
+kubectl apply -f citi-hypothesis/QCS-H08-data-exfil/pod.yaml
+# evidence (in-pod sensor log — rotates in minutes, grep promptly):
+kubectl exec -n qualys <sensor-pod> -- sh -c \
+  'grep "<policy-name>" /usr/local/qualys/runtime-sensor/data/logs/runtime_sensor.log'
 # cleanup
-./ebpf-operator tracingpolicy delete citi-h02-file-drift --all-rules
-sudo citi-hypothesis/teardown.sh
+kubectl delete -f citi-hypothesis/QCS-H08-data-exfil/pod.yaml
+kubectl delete -f citi-hypothesis/QCS-H08-data-exfil/policy-v1.yaml
 ```
 
-### Agent flags some labs need
+Apply the workload **after** the policy reports `Applied` — events fired
+before the policy is armed are missed (and early connects can miss pod
+attribution).
 
-- `--enable-process-cred` — required for `binary_properties` on exec
-  events (setuid/setgid/caps **and** memory-resident binaries). Needed by
-  QCS-H04's memfd detection.
-- `--enable-ancestors` — emit ancestor chain info on exec events (needed
-  if a lab reads `ancestors` fields; raw `matchBinaries`/`followChildren`
-  ancestor matching itself needs no flag).
-- Pass via `EBPF_AGENT_ARGS` to setup.sh:
-  `EBPF_AGENT_ARGS="--enable-process-cred" sudo citi-hypothesis/setup.sh`
+### Where the evidence lives
+
+- **Normal mode:** review the detection events in the Qualys UI.
+- **Debug mode / manual:** the sensor's in-pod log
+  (`runtime_sensor.log`) carries `Network Activity payload`,
+  `File event`, and `Process-exec payload` records. It **rotates
+  aggressively** — events can be gone in minutes; `--debug` greps it
+  automatically inside the lab window.
+- Consolidated reports (JSON + Markdown, written atomically) land in
+  `$RUN_DIR/hypo-run-<timestamp>.{json,md}`. The JSON stores counts, not
+  evidence lines.
+
+### Key flags (all also settable via `HYPO_RUN_*` env vars)
+
+| Flag | Meaning |
+| ------ | --------- |
+| `--labs 1,3-5,7 / all` | selection by hypothesis number (QCS-H01 → 1 … QCS-H20 → 20); a lab that cannot run in the selected mode reports `not supported` |
+| `--policy-mode v1/v2/auto` | policy form; **default v1** (v2 has the process/exec rules), `auto` picks by CRS version |
+| `--debug` | verbose logging + sensor-log evidence grep + PROVEN/NOT-PROVEN verdicts; without it labs just run and report `FINISHED` |
+| `--dry-run` | preflight + plan only, no side effects |
+| `--yes / --no-prompt` | no interactive confirmation |
+| `--no-color` | disable ANSI colors (auto-off when not a TTY; `NO_COLOR` env also honored); the log file is always plain |
+| `--keep` | leave policy + pod in place after each lab |
+| `--fail-fast` | stop the run after the first SKIPPED/NOT-PROVEN lab |
+| `--setup-sensor` | install the CRS sensor chart matching the policy mode before running |
+| `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers (`operator` is a standalone dev fallback) |
+| `--labs-dir DIR` | lab directory (default: repo root) |
+| `--events-file FILE` | capture file (standalone backend only; the k8s backend reads sensor pod logs) |
+| `--log-file FILE` | tee terminal output to a file |
+| `--settle SECS` | wait after workload activity (default 5) |
+| `--timeout-poll SECS` | policy-approval poll budget (default 60) |
+| `--timeout-cmd SECS` | per-command timeout (default 30) |
+| `--max-log-bytes` / `--max-events` | evidence window / print caps |
+
+Per lab it: prints the hypothesis briefing + policy-to-workload mapping;
+applies the policy file (`policy-v1.yaml` by default; `--policy-mode v2`
+uses `policy-v2.yaml`, `auto` picks by CRS version) via the k8s API;
+waits for the approval gate (`RuntimePolicy.status.state = Applied`);
+applies `pod.yaml` and waits for the workload to run; settles; in
+`--debug` mode greps the sensor logs for policy/rule-id evidence
+(deduped, capped, time-windowed to the lab's start — in v1 mode it also
+matches activity tokens from pod.yaml so process-lab verdicts reflect
+the base sensor's policy-free `process_exec` stream, with policy vs
+activity/exec hit counts split in the report); records the verdict
+(**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**, with weak-evidence notes
+when a workload fails to start); and cleans up (delete policy + pod)
+unless `--keep`.
+
+Exit codes: `0` done, `1` preflight/env failure, `2` usage, `130`
+interrupted (Ctrl+C; second Ctrl+C exits immediately). A pidfile lock
+prevents concurrent runs. Run `python3 hypo-run.py --help` for the full
+usage; `test-hypo-run.py` exercises the selection/parsing/event-matching
+logic locally.
+
+### Kubernetes notes for these labs
+
+- **NetworkPolicy must be enforced by the CNI** for deny legs to
+  actually be denied — verified live (H07's denied connect timed out,
+  rc=28).
+- **`pod`/`namespace` event fields only populate under k8s** — that is
+  the attribution these labs verify.
+- **`dst_endpoint.ip` shows the ClusterIP** (connect-time tuple,
+  pre-DNAT).
+- **v1 rate limit `1s` scope `pod` drops same-second connects** — lab
+  workloads space repeated legs with `sleep 2` so each produces an
+  event.
+- **Workload pods are self-driving** — each `pod.yaml` generates its
+  activity on its own once applied; no exec into the pod is needed.
 
 ## Lab anatomy
 
 ```text
 citi-hypothesis/<LAB-NAME>/
-├── policy.yaml      # RuntimePolicy v2 (auto-translated by ebpf-operator)
-├── policy-v1.yaml   # RuntimePolicy v1 (legacy form — see below)
-├── pod.yaml         # k8s/OpenShift manifest that generates the activity
+├── policy-v1.yaml   # RuntimePolicy v1 (qualys.com/v1 — CRS 1.45)
+├── policy-v2.yaml   # RuntimePolicy v2 (CRS 1.46 — process/exec rules)
+├── pod.yaml         # k8s workload that generates the activity
 ├── RESULT.md        # hypothesis, what we ran, what we saw, verdict
 └── tracingpolicy.yaml        # optional: raw Cilium fallback (see below)
 ```
@@ -80,17 +209,9 @@ citi-hypothesis/<LAB-NAME>/
 
 Every lab also ships `policy-v1.yaml`: the same detection in the legacy
 `qualys.com/v1` schema (`spec.base-policy`, `monitor-*`/`match-binaries`,
-and `action`). One document per base-policy — v1 has no rule list.
-
-`ebpf-operator` cannot ingest v1 directly (that path belongs to the cluster's
-conversion webhook + operator). To test locally, run the same builders
-the operator uses:
-
-```bash
-go build -mod=mod -o /tmp/v1convert ./citi-hypothesis/tools/v1convert
-/tmp/v1convert <lab>/policy-v1.yaml > /tmp/tp.yaml
-./ebpf-operator tracingpolicy add /tmp/tp.yaml
-```
+and `action`). One document per base-policy — v1 has no rule list. On
+the cluster it is applied with `kubectl` (or hypo-run); the conversion
+webhook + operator translate it into hooks.
 
 v1 differences vs v2 (verified by these labs):
 
@@ -106,10 +227,10 @@ v1 differences vs v2 (verified by these labs):
   next-release items.
 
 Copy `citi-hypothesis/TEMPLATE/` to start a new lab: write the hypothesis,
-add the policy + pod manifests, run it locally with the docker flow above,
-then record the outcome in `RESULT.md` — plain language, verdict up front.
+add the policy + pod manifests, run it on the cluster with hypo-run, then
+record the outcome in `RESULT.md` — plain language, verdict up front.
 
-## RuntimePolicy v2 capability (release/v1.6-1-q5)
+## RuntimePolicy v2 capability
 
 | Rule `type` | What it produces | Filters |
 | --- | --- | --- |
@@ -128,11 +249,10 @@ then record the outcome in `RESULT.md` — plain language, verdict up front.
 If a hypothesis needs a syscall/kprobe/tracepoint v2 cannot express —
 e.g. `memfd_create`, `ptrace`, `mount`, UDP `ip_output`, uprobes — ship a
 native **Cilium TracingPolicy** (`apiVersion: cilium.io/v1alpha1`) in the
-lab as `tracingpolicy.yaml`. `ebpf-operator tracingpolicy add` applies it
-verbatim; see `TEMPLATE/tracingpolicy.yaml`. Current labs do not ship raw
-TracingPolicies — the legs that needed them (memfd, cap-change, pod DNS,
-mount syscalls) are recorded in each lab's RESULT.md as **next-release**
-items. Note: agent **1.8 already logs DNS natively**
+lab as `tracingpolicy.yaml`; see `TEMPLATE/tracingpolicy.yaml`. Current
+labs do not ship raw TracingPolicies — the legs that needed them (memfd,
+cap-change, pod DNS, mount syscalls) are recorded in each lab's RESULT.md
+as **next-release** items. Note: agent **1.8 already logs DNS natively**
 (`MSG_OP_QUALYS_DNS` — fqdn + answers + src tuple), including pod
 lookups to external resolvers; the kube-dns (cluster-internal) path is
 the remaining gap.
@@ -150,7 +270,7 @@ rule, and a `syscall` rule type for mount monitoring.
 ## Labs
 
 | Lab | Hypothesis | Verdict | CRS |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.46+ |
 | `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | `1.45+*` |
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
@@ -172,99 +292,13 @@ rule, and a `syscall` rule type for mount monitoring.
 | `QCS-H19-sensor-health` | Interruption → event gap; recovery → events resume | Supported (degraded-node UI = platform sensor profile) | 1.45+ |
 | `QCS-H20-volume-mount-monitoring` | File activity inside mounted volumes → recorded; mount syscall monitoring = next release | Partial (mounted-volume reads covered; mount syscall = next release) | 1.46+ |
 
-## hypo-run — automated lab runner
+## Verified results
 
-`hypo-run.py` runs any lab end-to-end on a live cluster or standalone host —
-preflight -> selection -> per-lab execution (policy -> approval gate ->
-workload -> evidence -> verdict -> cleanup) -> consolidated report. It is
-**fully self-contained (Python stdlib only)**: no kubectl/helm/docker/CLI
-dependencies — everything goes through the Kubernetes REST API (kubeconfig,
-create-via-POST/PUT, CRD status polling, pod logs, a minimal WebSocket exec
-client) with a built-in YAML parser. It also keeps the standalone
-`ebpf-operator` flow as a fallback backend.
-
-### How to use
-
-Run on the EC2 host, as root (`sudo`). `--labs` selects by **hypothesis
-number** (`1` = QCS-H01 … `20` = QCS-H20); each lab prints its verdict as
-it finishes.
-
-**v1 mode (default — CRS 1.45 policies):**
-
-```bash
-sudo python3 hypo-run.py --dry-run                        # preflight + plan only (zero side effects)
-sudo python3 hypo-run.py --labs 2 --yes                   # run hypothesis 2
-sudo python3 hypo-run.py --labs 2-8 --yes                 # run hypotheses 2 through 8
-sudo python3 hypo-run.py --labs all --yes                 # run every lab that has a v1 form
-sudo python3 hypo-run.py --labs 1 --policy-mode v1 --yes  # H01 -> reports "not supported in v1"
-```
-
-**v2 mode (CRS 1.46 policies — process/exec rules; required for H01, H20):**
-
-```bash
-sudo python3 hypo-run.py --labs 1 --policy-mode v2 --yes            # H01 runs (needs Postfix — v2 only)
-sudo python3 hypo-run.py --labs all --yes --policy-mode v2          # v2 sweep
-sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor  # also installs the v2 sensor chart
-```
-
-Notes:
-
-- `--policy-mode v1` is the default — you can omit it. `auto` picks the
-  form by each lab's CRS version.
-- `--setup-sensor` reinstalls the sensor chart for the mode (v1 -> 145,
-  v2 -> 146). **Only use it when you want a sensor restart** — if the
-  sensor is already running the right version, leave it off.
-- A lab whose policy form is missing reports `not supported in v1/v2`
-  instead of silently switching (H01, H20 have no v1 form).
-- Interactive: `sudo python3 hypo-run.py` — pick labs, confirm each.
-
-Key flags (all also settable via `HYPO_RUN_*` env vars):
-
-| Flag | Meaning |
-| ------ | --------- |
-| `--labs 1,3-5,7 / all` | selection by hypothesis number (QCS-H01 → 1 … QCS-H20 → 20); a lab that cannot run in the selected mode reports `not supported` |
-| `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers |
-| `--policy-mode v1/v2/auto` | policy form; **default v1** (v2 has the process/exec rules), `auto` picks by CRS version |
-| `--labs-dir DIR` | lab directory (default: repo root) |
-| `--events-file FILE` | capture file (operator backend; k8s backend reads sensor pod logs) |
-| `--log-file FILE` | tee terminal output to a file |
-| `--dry-run` | preflight + plan only, no side effects |
-| `--yes / --no-prompt` | no interactive confirmation |
-| `--keep` | leave policy + pod in place after each lab |
-| `--fail-fast` | stop the run after the first SKIPPED/NOT-PROVEN lab |
-| `--settle SECS` | wait after workload activity (default 5) |
-| `--timeout-poll SECS` | policy-approval poll budget (default 60) |
-| `--timeout-cmd SECS` | per-command timeout (default 30) |
-| `--max-log-bytes` / `--max-events` | evidence window / print caps |
-
-Per lab it: prints the hypothesis briefing + policy-to-workload mapping;
-applies the policy file (`policy-v1.yaml` by default; `--policy-mode v2`
-uses `policy-v2.yaml`, `auto` picks by CRS version) via kubectl; **waits for the approval gate**
-(`RuntimePolicy.status.state = Applied` — the same signal the manual
-`ebpflog.sh` flow checks); applies `pod.yaml` and waits for the workload to
-run; settles; greps the sensor logs for policy/rule-id evidence (deduped,
-capped, **time-windowed to the lab's start** so a previous run's events are
-never counted; in v1 mode also matches activity tokens from pod.yaml so
-process-lab verdicts reflect the base sensor's policy-free `process_exec`
-stream, with policy vs activity/exec hit counts split in the report);
-records the verdict (**PROVEN / NOT-PROVEN / SKIPPED / ABORTED**,
-with weak-evidence notes when a workload fails to start); and cleans up
-(delete policy + pod) unless `--keep`.
-
-Consolidated reports (JSON + Markdown, written atomically) land in
-`$RUN_DIR/hypo-run-<timestamp>.{json,md}`. Exit codes: `0` done, `1`
-preflight/env failure, `2` usage, `130` interrupted (Ctrl+C; second Ctrl+C
-exits immediately). A pidfile lock prevents concurrent runs. Run
-`python3 hypo-run.py --help` for the full usage; `test-hypo-run.py` exercises
-the selection/parsing/event-matching logic locally.
-
-## Verification run (hypo-run, 2026-11-04)
-
-Full pass of all 20 labs on a live cluster (k8s backend): policy applied via
-the k8s API -> approval gate (`RuntimePolicy.status.state = Applied`) ->
-workload pod -> event evidence from the sensor logs -> verdict -> cleanup.
-Every lab's test workload now starts (see the pod.yaml `runAsNonRoot` fix);
-negative/restricted control pods still fail as intended.
+Full pass of all 20 labs on a live cluster (k8s backend): policy applied
+via the k8s API → approval gate (`RuntimePolicy.status.state = Applied`)
+→ workload pod → event evidence from the sensor logs → verdict →
+cleanup. Every lab's test workload starts; negative/restricted control
+pods still fail as intended.
 
 | # | Lab | Verdict | Evidence | Duration |
 | --- | ----- | --------- | ---------- | ---------- |
@@ -289,10 +323,15 @@ negative/restricted control pods still fail as intended.
 | 19 | QCS-H19-sensor-health | PROVEN | 3 | 12.4s |
 | 20 | QCS-H20-volume-mount-monitoring | PROVEN | 8 | 14.4s |
 
-**20 / 20 PROVEN.** Evidence = matching detection events in the sensor logs
-(policy-name / rule-id matches, deduped). H01/H11/H17 took longer because
-their negative-control pods intentionally fail and the Job's ready-wait runs
-its budget; the test workloads still ran and produced evidence.
+**20 / 20 PROVEN.** Evidence = matching detection events in the sensor
+logs (policy-name / rule-id matches, deduped). H01/H11/H17 took longer
+because their negative-control pods intentionally fail and the Job's
+ready-wait runs its budget; the test workloads still ran and produced
+evidence.
+
+H02–H19 were subsequently re-verified in **v1 mode** (CRS 1.45) —
+all PROVEN; per-lab runs and event counts are recorded in each lab's
+`RESULT.md`.
 
 ### v1 coverage per lab (H01–H20)
 
@@ -481,8 +520,7 @@ Summary of live results (policy → evidence):
 | H19 | baseline 1 → outage 0 → recovery 1 (agent restarted identically) |
 
 Note: the H19 outage test killed and restarted the agent; it was brought
-back with the same args (`--bpf-lib bpf/objs --export-filename
-/tmp/e2e-check/export.jsonl`) and the lab capture reconnected.
+back with the same configuration and the event capture reconnected.
 
 ### 2026-11-03 — H06 quick run (north-south visibility)
 
@@ -505,7 +543,7 @@ What the sensor recorded (policy `citi-h06-north-south`):
 Change done: H05 RESULT point table (S1–S5, E1–E5) + observed events;
 README matrix rows added; policy updated to add the denied port 9090.
 
-eBPF-Agent events observed (policy `citi-h05-east-west`, client `citi-client`):
+Detection events observed (policy `citi-h05-east-west`, client `citi-client`):
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h05-east-west-v2-east-west-egress", "function_name": "tcp_connect",
@@ -528,7 +566,7 @@ eBPF-Agent events observed (policy `citi-h05-east-west`, client `citi-client`):
 Change done: H04 RESULT.md gained the point-by-point table (E1–E5) +
 observed events (cases 1–3).
 
-eBPF-Agent events observed (policy `citi-h04-fileless-exec`):
+Detection events observed (policy `citi-h04-fileless-exec`):
 
 ```json
 // case 1 — inline `bash -c` (marker CITI-H04-inline): full argv visible
@@ -556,7 +594,7 @@ eBPF-Agent events observed (policy `citi-h04-fileless-exec`):
 Change done: H03 RESULT.md gained the point-by-point table (E1–E5, per the
 skill rule) + observed events; README not-covered list updated (E5g).
 
-eBPF-Agent events observed (policy `citi-h03-process-lineage`, marker `CITI-H03-5521`):
+Detection events observed (policy `citi-h03-process-lineage`, marker `CITI-H03-5521`):
 
 ```json
 {"process_exec":   {"process": {"binary": "/usr/bin/sh", "arguments": "-c \"MARKER=CITI-H03-5521 …\"", "uid": 0, "docker": "c487a1d85fed"}}}
@@ -582,11 +620,10 @@ Change done:
 - Added "Execution-point coverage" section (this README) + mandatory point-by-point
   tables in RESULT.md (skill rule) — H01 table updated to the original
   hypothesis execution flow (E1–E5); not-covered points listed above.
-- Environment note: the running agent had been replaced by the matchCmdArgs
-  e2e session (writes `/tmp/e2e-check/export.jsonl`); restarted the lab
-  capture (`ebpf-operator getevents -o json` → fresh `/tmp/citi-labs/events.jsonl`).
+- Environment note: the event capture was restarted fresh for the lab
+  run (`/tmp/citi-labs/events.jsonl`).
 
-H02 runtime file drift — eBPF-Agent events observed (policy `citi-h02-file-drift`):
+H02 runtime file drift — detection events observed (policy `citi-h02-file-drift`):
 
 ```json
 {"process_kprobe": {"policy_name": "citi-h02-file-drift-v2-drift-create",   "function_name": "security_inode_create",  "process": {"binary": "/usr/bin/bash"}}}
@@ -627,6 +664,6 @@ Enforce mode (policy `citi-h02-file-drift-enforce`, `action: block`):
 - **stdin-fed scripts leave no script content** — only the interpreter
   launch plus its child/file/network activity (QCS-H04).
 - **`pod`/`namespace` fields populate under k8s/OpenShift — verified in
-  cluster runs**; plain docker shows the `docker` container id only (H03/H05).
-- **Per-rule policies** are named `<policy>-v2-<rule-id>`; remove them
-  with `ebpf-operator tracingpolicy delete <policy> --all-rules`.
+  cluster runs**; non-k8s runtimes show the container id only (H03/H05).
+- **Per-rule policies** are named `<policy>-v2-<rule-id>` — delete all
+  of a v2 policy's rules when removing it.
