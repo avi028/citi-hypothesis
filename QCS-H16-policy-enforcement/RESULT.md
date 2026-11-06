@@ -31,6 +31,13 @@ contribution is enforcement at the process/file hook level.
 | audit | ran, rc=0 | still alive |
 | enforce | killed at exec, rc=137 | still alive |
 
+EC2 run (`hypo-run.py --labs 16`, v1 mode, 2026-11-06): **PROVEN** —
+6 events in 74s. The v1 `file-open` + `action: kill` policy on the probe
+script **enforced**: the opener was SIGKILLed and the pod went unready —
+the documented v1 enforcement shape (kill-on-open kills the accessor;
+the cleaner exec-block that keeps the pod stable is the v2 process rule,
+untestable here since this cluster's CRD serves v1 only).
+
 ## Caveats
 
 - `action: block` = SIGKILL at the hook (exit 137), not a clean
