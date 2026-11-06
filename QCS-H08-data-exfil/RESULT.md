@@ -14,8 +14,9 @@ chain, so "this process read this file and connected to that endpoint" is
 a single joined story, not two guesses — including when the upload goes
 through a just-created runtime script.
 
-**Next release:** the DNS leg of the chain (UDP) needs the `ip_output`
-hook — removed from the lab, future release (H06/H18 pattern).
+**Next release:** the DNS leg of the chain (UDP). Agent 1.8 logs
+host-network DNS natively (`MSG_OP_QUALYS_DNS`); pod-level DNS is not
+emitted yet in this build — next release (H06/H18 pattern).
 
 ## What we did
 
@@ -48,7 +49,7 @@ uploaded bytes. Qualys attributes the transfer without exposing the data.
 | E3 | Repeat via newly created runtime script | **YES** | script exec → `wget` → open + connect again |
 | E4 | Correlate file access / process exec / network | **YES** | open + connect on the same process; script chains as parent |
 | E5 | Contents NOT captured | **YES** | events carry path + socket tuple only — no payload bytes |
-| — | DNS leg of the chain | **NOT covered — next release** | needs `ip_output` UDP :53 (raw TP removed) |
+| — | DNS leg of the chain | **NOT covered — next release** | 1.8 logs host DNS natively; pod DNS not emitted yet |
 
 **Not covered live:** the DNS leg (next release).
 

@@ -1,6 +1,7 @@
 # QCS-H06 — Unusual North-South Network Connection
-# CRS version support: 1.45+ — v1 net-tcp-open covers TCP; UDP/DNS visibility = next release (raw TP removed from the lab)
-#
+# CRS version support: 1.45+ — v1 net-tcp-open covers TCP;
+# pod DNS = next release (agent 1.8 logs host-network DNS natively via
+# MSG_OP_QUALYS_DNS; pod-level lookups are not emitted yet)
 # Pod that performs: DNS resolution then a TCP/HTTP connection to the
 # approved destination, a second connection to another approved endpoint,
 # and an attempt on a port outside the monitored set for comparison.

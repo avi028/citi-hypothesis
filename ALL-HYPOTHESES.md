@@ -51,8 +51,9 @@ Base version: `release/v1.6-1-q5`.
 - **Capabilities** (H11) — no capability filter; a cap-change rule is
   next release.
 - **memfd fileless exec** (H04) — no v1 base-policy; **next release** (raw-TP form removed from the lab).
-- **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only; UDP
-  visibility is **next release** (raw `ip_output` forms removed).
+- **DNS/UDP** (H06, H18) — `net-tcp-open` is TCP connect only. Agent
+  1.8 logs host-network DNS natively (`MSG_OP_QUALYS_DNS`); pod-level
+  DNS is **next release** (raw `ip_output` forms removed).
 - **Burst fidelity** — forced `rateLimit: 1m` drops repeated events.
 
 ## CRS version support (per lab)
@@ -60,8 +61,9 @@ Base version: `release/v1.6-1-q5`.
 - **1.45+** — fully covered by RuntimePolicy **v1** (no v2 needed)
 - **1.46+** — requires RuntimePolicy **v2** (process rules, exec context,
   enforcement) — v1 cannot express it
-- **next release** — needs a **raw Cilium TracingPolicy** hook that v2
-  does not have (caps, memfd, UDP/DNS, mount syscalls); recorded under
+- **next release** — needs a hook that v2
+  does not have (caps, memfd, pod DNS, mount syscalls; agent 1.8 already
+  logs host-network DNS natively via `MSG_OP_QUALYS_DNS`); recorded under
   "Next release" in the RESULT.md of the affected lab (raw-TP forms
   removed from the labs)
 
@@ -923,10 +925,11 @@ the destination is unreachable.
 
 **Verdict.** **It works.** Successful, refused, and blackholed connections were all
 recorded with process + destination attribution. Two honest limits:
-visibility is scoped to the ports the policy watches, and UDP DNS lookups
-are not part of `tcp_connect` telemetry.
+visibility is scoped to the ports the policy watches, and pod DNS lookups
+are not part of `tcp_connect` telemetry (agent 1.8 logs host-network DNS
+natively; pod DNS is next release).
 
-**CRS version support: 1.45+** — v1 net-tcp-open covers TCP; UDP/DNS visibility = next release (raw TP removed from the lab)
+**CRS version support: 1.45+** — v1 net-tcp-open covers TCP; pod DNS visibility = next release (agent 1.8 logs host-network DNS natively)
 
 ### RuntimePolicy v1 — `QCS-H06-north-south/policy-v1.yaml`
 
@@ -1023,8 +1026,10 @@ spec:
 ### Raw Cilium TracingPolicy fallback — removed (next release)
 
 The lab previously shipped `tracingpolicy-dns.yaml` (a raw `ip_output`
-UDP :53 audit for the DNS leg). It cannot be applied in the k8s flow and
-has been **removed — UDP/DNS visibility is a next-release item**.
+UDP :53 audit for the DNS leg). It has been removed — agent 1.8 logs
+host-network DNS natively (`MSG_OP_QUALYS_DNS`: fqdn + 5-tuple), but
+pod-level lookups are not emitted in this build. **Pod DNS visibility is
+a next-release item.**
 
 ### Observed data (v2 run)
 
@@ -1034,11 +1039,11 @@ has been **removed — UDP/DNS visibility is a next-release item**.
 | Connect to port 443 — **connection refused** | Yes — identical record shape |
 | Connect to unreachable IP (times out) | Yes — identical record shape |
 | Connect to port 9090 — **not in the policy list** | No — policy-scoped visibility |
-| DNS lookup (`getent`, UDP to resolver) | Not via tcp_connect — **next release** (needs a raw `ip_output` hook; raw policy removed) |
+| DNS lookup (`getent`, UDP to resolver) | Not via tcp_connect — **next release** for pods (1.8 logs host-network DNS natively) |
 
 ### Observed data (v1 run)
 
-`net-tcp-open` 80/443/8080 → allowed, refused, and blackholed connects all recorded; unlisted :9090 silent. DNS/UDP is a **next-release** item.
+`net-tcp-open` 80/443/8080 → allowed, refused, and blackholed connects all recorded; unlisted :9090 silent. Pod DNS is a **next-release** item (1.8 logs host DNS natively).
 
 ---
 
@@ -2898,7 +2903,7 @@ Whether the *platform UI*
 offers a pre-joined investigation view is a Qualys product question — the
 data to reconstruct it is complete.
 
-**CRS version support: 1.46+** — v2 chain legs; DNS leg = next release (raw TP removed from the lab)
+**CRS version support: 1.46+** — v2 chain legs; pod DNS leg = next release (agent 1.8 logs host-network DNS natively)
 
 ### RuntimePolicy v1 — `QCS-H18-signal-correlation/policy-v1.yaml`
 
@@ -2934,8 +2939,8 @@ spec:
 # Every leg of the chain is a separately-matched signal; the events are
 # joined by exec_id/parent_exec_id + container id + a unique marker
 # (CITI-H18-<n> appears in script and payload names). DNS is UDP —
-# tcp_connect never sees it; that leg needs a raw ip_output hook and is
-# a next-release item.
+# tcp_connect never sees it; agent 1.8 logs host-network DNS natively
+# (MSG_OP_QUALYS_DNS) but pod-level DNS is a next-release item.
 apiVersion: qualys.com/v2
 kind: RuntimePolicy
 metadata:
@@ -3022,14 +3027,16 @@ SH
 ### Raw Cilium TracingPolicy fallback — removed (next release)
 
 The lab previously shipped `tracingpolicy-dns.yaml` (a raw `ip_output`
-UDP :53 audit covering the DNS leg of the correlation chain). It cannot
-be applied in the k8s flow and has been **removed — UDP/DNS visibility
-is a next-release item**.
+UDP :53 audit covering the DNS leg of the correlation chain). It has
+been removed — agent 1.8 logs host-network DNS natively
+(`MSG_OP_QUALYS_DNS`), but pod-level lookups are not emitted in this
+build. **Pod DNS visibility is a next-release item.**
 
 ### Observed data (v1 run)
 
-Converted + load-verified (file-open + net-tcp-open). The DNS leg needs
-a raw `ip_output` hook — **a next-release item** (v1 has no UDP rule).
+Converted + load-verified (file-open + net-tcp-open). The DNS leg is UDP
+(v1 has no UDP rule); agent 1.8 logs host-network DNS natively —
+pod-level DNS is **a next-release item**.
 
 ---
 

@@ -157,20 +157,20 @@ east-west path precisely.
 | S1 | Source pod with curl + DNS utilities | manifest | `pod.yaml` client pod (`wget`; `getent` for DNS) |
 | S2 | Approved internal HTTP/DNS test destination | service | in-cluster HTTP service + test destination; DNS via `getent` |
 | S3 | OpenShift egress controls (only test dest permitted) | **NOT COVERED live** | egress policy is a cluster/platform feature — needs OpenShift |
-| S4 | Network monitoring enabled | `policy.yaml` / `policy-v1.yaml` | egress audit (80/443/8080); UDP/DNS needs a raw `ip_output` hook — **next release** (raw policy removed) |
+| S4 | Network monitoring enabled | `policy.yaml` / `policy-v1.yaml` | egress audit (80/443/8080); agent 1.8 logs host DNS natively — pod DNS is **next release** |
 | S5 | No internet C2 | env note | all traffic stays inside the test environment — no external dests used |
 | E1 | Baseline traffic to approved app dest | **YES** (live) | `tcp_connect` → :8080 |
 | E2 | Separate approved test dest, selected ports | **YES** (live) | `tcp_connect` → :443 (TLS fails; TCP recorded) |
-| E3 | DNS resolution then TCP/HTTP | **Partial** | TCP leg recorded; the UDP/DNS leg needs a raw `ip_output` :53 hook — **next release** |
+| E3 | DNS resolution then TCP/HTTP | **Partial** | TCP leg recorded; pod DNS is **next release** (1.8 logs host DNS natively) |
 | E4a | Connection to blocked/unlisted port (:9090) | **YES** (live) | **NO event** — ports outside `matchPorts` are invisible (policy-scoped) |
 | E4b | Connection to watched port, dropped by firewall | **YES** (live) | client timed out (rc=1) but `tcp_connect` **still recorded** — attempt, not outcome |
-| E5 | dst address, port, process, container, policy-action telemetry | **YES** (live) | `tcp_connect` (wget, dst address, port, `IPPROTO_TCP`, `KPROBE_ACTION_POST`, container id); DNS telemetry is **next release** |
+| E5 | dst address, port, process, container, policy-action telemetry | **YES** (live) | `tcp_connect` (wget, dst address, port, `IPPROTO_TCP`, `KPROBE_ACTION_POST`, container id); pod DNS telemetry is **next release** |
 
 **Verdict.** **It works for TCP.** Successful, refused, and blackholed connections were all
 recorded with process + destination attribution. Two honest limits:
-visibility is scoped to the ports the policy watches, and UDP DNS lookups
-are not covered today — they need a raw `ip_output` hook that is a
-**next-release** item.
+visibility is scoped to the ports the policy watches, and pod DNS lookups
+are not covered today — agent 1.8 logs host-network DNS natively
+(`MSG_OP_QUALYS_DNS`), and pod-level DNS is a **next-release** item.
 
 **Lab:** `citi-hypothesis/QCS-H06-north-south/` — policies: `policy.yaml` (v2), `policy-v1.yaml` (v1); workload: `pod.yaml`
 

@@ -1,5 +1,5 @@
 # QCS-H18 — Process, File, and Network Event Correlation
-# CRS version support: 1.46+ — v2 chain legs; DNS leg = next release (raw TP removed from the lab)
+# CRS version support: 1.46+ — v2 chain legs; pod DNS leg = next release (agent 1.8 logs host-network DNS natively; pod-level not emitted yet)
 #
 # One pod runs the full chain: parent shell creates a runtime script and a
 # synthetic payload, the script reads the payload, resolves an internal

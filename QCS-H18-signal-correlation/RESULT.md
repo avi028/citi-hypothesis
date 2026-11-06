@@ -16,8 +16,9 @@ to the receiver. Whether the *platform UI* offers a pre-joined
 investigation view is a Qualys product question — the data to reconstruct
 it is complete.
 
-**Next release:** the DNS leg (UDP) needs the `ip_output` hook — removed
-from the lab, future release (H06 pattern).
+**Next release:** the DNS leg (UDP). Agent 1.8 logs host-network DNS
+natively (`MSG_OP_QUALYS_DNS` — fqdn + tuple), but pod-level lookups are
+not emitted yet in this build — next release (H06 pattern).
 
 ## What we did
 
@@ -35,7 +36,7 @@ from the lab, future release (H06 pattern).
 | script creation | file-open (payload/script) | shell |
 | script execution | exec-check (chain script) | script matched |
 | file read | file-open (payload) | cat (child of script) |
-| DNS | UDP to the resolver | getent — **next release** (raw hook removed) |
+| DNS | UDP to the resolver | getent — **next release** (1.8 logs host DNS; pod DNS not yet emitted) |
 | network connect | `tcp_connect` → :8080 | the chain script |
 | unique marker | in names/argv | all legs |
 
@@ -44,8 +45,9 @@ marker in argv — the full sequence reconstructs in order.
 
 ## Caveats
 
-- The DNS leg requires the raw `ip_output` TracingPolicy (UDP is invisible
-  to the TCP connect hook) — same fallback as H06, now a next-release item.
+- The DNS leg is UDP — invisible to the TCP connect hook. Agent 1.8 has a
+  native DNS event for host-network lookups; pod-level DNS is a
+  next-release item (same gap as H06).
 - Events are joined by reconstruction (IDs/markers), not by a single
   "investigation" event — that UX is a platform concern.
 - v1 cannot express the process-exec leg (script launch marker only via
@@ -58,7 +60,7 @@ marker in argv — the full sequence reconstructs in order.
 | E1 | Create a runtime script | **YES** | file-open by shell (script/payload creation) |
 | E2 | Execute via parent shell | **YES** | exec-check event for the chain script |
 | E3 | Read a synthetic file | **YES** | file-open by the reader |
-| E4 | Resolve an internal hostname (DNS) | **NOT covered — next release** | UDP hook removed from the lab (H06 pattern) |
+| E4 | Resolve an internal hostname (DNS) | **NOT covered — next release** | 1.8 logs host DNS natively; pod DNS not emitted yet (H06 pattern) |
 | E5 | Connect + upload to controlled endpoint | **YES** | `tcp_connect` from the chain script → receiver |
 | E6 | Reconstruct the sequence | **YES PARTIAL** | events join cleanly by process IDs/marker/container — a pre-built "investigation sequence" view is a platform question |
 
@@ -70,5 +72,6 @@ marker in argv — the full sequence reconstructs in order.
 | `pod.yaml` | workload running the full chain |
 | `RESULT.md` | this document |
 
-`tracingpolicy-dns.yaml` was removed — UDP/DNS visibility is a
+`tracingpolicy-dns.yaml` was removed — agent 1.8 logs host-network DNS
+natively (`MSG_OP_QUALYS_DNS`); pod-level DNS visibility is a
 next-release item.
