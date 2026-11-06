@@ -80,6 +80,11 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 - `Process-exec payload` DEBUG lines batch-flush — same timestamp on many.
 - hypo-run reports: `/tmp/citi-labs/hypo-run-<ts>.{json,md}` — JSON stores
   counts only, not evidence lines.
+- **Without `--debug`, hypo-run no longer greps sensor logs or emits a
+  verdict** — it applies policy + pod, settles, reports `FINISHED`, and
+  the user reviews events in the Qualys UI. Evidence grep +
+  PROVEN/NOT-PROVEN only run with `--debug` (deployed to
+  `/tmp/hypo-run.py` on EC2).
 
 ## Commits pushed (origin/main, github.com/avi028/citi-hypothesis)
 
