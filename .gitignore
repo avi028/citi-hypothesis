@@ -15,3 +15,6 @@ Desktop.ini
 /tools/e2e-verify/
 __pycache__/
 *.pyc
+
+# Local working notes
+SESSION-HANDOFF.md
