@@ -138,6 +138,16 @@ pol = {"text": "spec:\n  rules:\n  - name: r1\n    type: network\n    action: bl
 warns = m.not_applied_warnings(pol, "install output: rule Not-applied")
 check("not-applied warnings detected", len(warns) >= 2)
 
+# ---- pod readiness (control pod failures are expected) ------------------------
+check("readiness: all running", m.pod_readiness([("a", "Running"), ("b", "Running")], "a") == (True, 0))
+check("readiness: control config-error expected", m.pod_readiness([("a", "Running"), ("b", "CreateContainerConfigError")], "a") == (True, 1))
+check("readiness: control imagepull expected", m.pod_readiness([("a", "Running"), ("b", "ImagePullBackOff")], "a") == (True, 1))
+check("readiness: test pod failing is weak", m.pod_readiness([("a", "Failed"), ("b", "CreateContainerConfigError")], "a") == (False, 0))
+check("readiness: unexpected failure is weak", m.pod_readiness([("a", "Running"), ("b", "CrashLoopBackOff"), ("c", "Unknown")], "a") == (False, 0))
+check("readiness: empty is weak", m.pod_readiness([], "a") == (False, 0))
+check("readiness: all running w/ unknown test pod name", m.pod_readiness([("b", "Running")], "a") == (True, 0))
+check("readiness: unknown test pod + failure is weak", m.pod_readiness([("b", "Failed")], "a") == (False, 0))
+
 # ---- lab scanning with fake dirs ----------------------------------------------
 tmp = tempfile.mkdtemp(prefix="hypo-test-")
 try:

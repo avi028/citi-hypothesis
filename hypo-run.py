@@ -125,7 +125,7 @@ from collections import OrderedDict
 from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -1647,7 +1647,10 @@ def apply_pod(lab, ctx, lr):
             log("[WARN] kubectl apply failed: %s" % trim_line(err or out))
         pod_statuses = wait_pod_status(lab)
         if pod_statuses:
+            test_pod = (lab["pod"] or {}).get("name") or ""
             for name, status in pod_statuses:
+                if status in CONTROL_FAIL_STATES and name != test_pod:
+                    continue  # control pod failing is expected (negative control)
                 if status in ("ImagePullBackOff", "ErrImagePull", "CrashLoopBackOff", "ImagePullError"):
                     lr.note("pod %s in %s - weak evidence (activity may not have run)" % (name, status))
                     log("[WARN] pod %s in %s - activity may not have run" % (name, status))
@@ -1655,6 +1658,27 @@ def apply_pod(lab, ctx, lr):
         log("  kubectl unavailable or cluster unreachable - falling back to docker")
         lr.note("docker fallback used (no cluster) - evidence is weaker")
         docker_run_pod(lab, lr)
+
+
+READY_POD_STATES = ("Running", "Succeeded", "Completed")
+CONTROL_FAIL_STATES = ("CreateContainerConfigError", "ImagePullBackOff",
+                       "ErrImagePull", "CrashLoopBackOff", "ImagePullError")
+
+
+def pod_readiness(statuses, test_pod=""):
+    """Workload readiness from (name, status) pairs: (ready, control_failures).
+
+    A negative/control pod (any pod other than the test pod) failing to
+    start (CreateContainerConfigError / image errors) is expected and does
+    not weaken the evidence — the test pod being ready is what matters."""
+    if not statuses:
+        return False, 0
+    test = dict(statuses).get(test_pod, "")
+    if test in READY_POD_STATES:
+        failures = [(n, s) for n, s in statuses if n != test_pod and s not in READY_POD_STATES]
+        if failures and all(s in CONTROL_FAIL_STATES for _, s in failures):
+            return True, len(failures)
+    return all(s in READY_POD_STATES for _, s in statuses), 0
 
 
 def k8s_apply_pod(lab, lr):
@@ -1667,15 +1691,20 @@ def k8s_apply_pod(lab, lr):
     wait_budget = min(180, max(CFG.timeout_poll, 60))
     statuses = k8s_wait_pod_status(lab, wait_s=wait_budget)
     if statuses:
-        running = all(s in ("Running", "Succeeded", "Completed") for _, s in statuses)
-        if running:
+        test_pod = (lab["pod"] or {}).get("name") or ""
+        ready, ctrl_fail = pod_readiness(statuses, test_pod)
+        if ready:
             log("  workload ready: %s" % "; ".join("%s=%s" % (n, s) for n, s in statuses))
+            if ctrl_fail:
+                log("    control pod(s) failed to start as expected (negative control)")
         else:
             lr.note("workload not ready within %ds: %s - evidence likely weak"
                     % (wait_budget, "; ".join("%s=%s" % (n, s) for n, s in statuses)))
             log("[WARN] workload not ready within %ds: %s - evidence likely weak"
                 % (wait_budget, "; ".join("%s=%s" % (n, s) for n, s in statuses)))
     for name, status in statuses:
+        if status in CONTROL_FAIL_STATES and name != (lab["pod"] or {}).get("name"):
+            continue  # control pod failing is expected (negative control)
         if status in ("ImagePullBackOff", "ErrImagePull", "CrashLoopBackOff", "ImagePullError"):
             lr.note("pod %s in %s - weak evidence (activity may not have run)" % (name, status))
             log("[WARN] pod %s in %s - activity may not have run" % (name, status))
