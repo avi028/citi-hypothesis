@@ -7,6 +7,8 @@ metadata:
 spec:
   base-policy: file-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /tmp/citi-h18-payload.txt
 ---
@@ -17,5 +19,7 @@ metadata:
 spec:
   base-policy: net-tcp-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-dest-ports:
   - "8080"

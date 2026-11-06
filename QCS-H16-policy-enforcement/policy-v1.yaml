@@ -8,5 +8,7 @@ metadata:
 spec:
   base-policy: file-open
   action: kill
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /tmp/citi-h16-probe.sh

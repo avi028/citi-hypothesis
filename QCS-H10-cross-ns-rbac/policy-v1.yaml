@@ -5,6 +5,8 @@ metadata:
 spec:
   base-policy: file-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /run/secrets/kubernetes.io/serviceaccount/
   - /var/run/secrets/kubernetes.io/serviceaccount/
@@ -16,6 +18,8 @@ metadata:
 spec:
   base-policy: net-tcp-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-dest-ports:
   - "443"
   - "6443"

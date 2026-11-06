@@ -9,5 +9,7 @@ metadata:
 spec:
   base-policy: file-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /tmp/citi-h03-chain.sh

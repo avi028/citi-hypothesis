@@ -5,6 +5,8 @@ metadata:
 spec:
   base-policy: file-create
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /var/qualys-citi/h13/
 ---
@@ -15,6 +17,8 @@ metadata:
 spec:
   base-policy: file-write
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /var/qualys-citi/h13/
 ---
@@ -25,5 +29,7 @@ metadata:
 spec:
   base-policy: file-open
   action: audit
+  rate-limit: "1s"
+  rate-limit-scope: "pod"
   monitor-paths:
   - /var/qualys-citi/h13/
