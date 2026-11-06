@@ -2553,7 +2553,11 @@ def main():
 
         max_hnum = max(by_hnum) if by_hnum else len(all_labs)
         try:
-            selected = prompt_selection(max_hnum)
+            if CFG.dry_run and not CFG.labs:
+                log("dry-run: no --labs given — planning all %d labs" % len(by_hnum))
+                selected = sorted(by_hnum)
+            else:
+                selected = prompt_selection(max_hnum)
         except UsageError as e:
             logerr("[FAIL] %s" % e)
             exit_reason = "usage-error"
