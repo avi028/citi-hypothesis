@@ -9,6 +9,32 @@ kind: Namespace
 metadata:
   name: citi-h17
 ---
+# Receiver for the network leg — the Job wgets this service; tcp_connect
+# records the attempt regardless of HTTP result.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h17-receiver
+  namespace: citi-h17
+  labels:
+    app: citi-h17-receiver
+spec:
+  containers:
+  - name: httpd
+    image: registry.access.redhat.com/ubi9/httpd-24:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: citi-h17-svc
+  namespace: citi-h17
+spec:
+  selector:
+    app: citi-h17-receiver
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
