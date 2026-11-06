@@ -43,6 +43,11 @@ the wire — the record always carries the destination address.
 
 ## Caveats for the field
 
+- **v1 rate limit collapses bursts**: v1 `audit` translates to `Post`
+  with `rateLimit: 1m, scope: global` — the pod's five rapid connects
+  produce ~1 `Network Activity` payload (the execs themselves are all in
+  the process stream). Connect *count* is not evidence in v1; a watched
+  connect being recorded is.
 - **Denied ports are policy-scoped**: a port NOT in the watched list
   produces no event.
 - **The policy matches every workload**: in cluster runs, ambient
