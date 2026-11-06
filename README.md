@@ -182,20 +182,46 @@ create-via-POST/PUT, CRD status polling, pod logs, a minimal WebSocket exec
 client) with a built-in YAML parser. It also keeps the standalone
 `ebpf-operator` flow as a fallback backend.
 
+### How to use
+
+Run on the EC2 host, as root (`sudo`). `--labs` selects by **hypothesis
+number** (`1` = QCS-H01 … `20` = QCS-H20); each lab prints its verdict as
+it finishes.
+
+**v1 mode (default — CRS 1.45 policies):**
+
 ```bash
-# run on the EC2 host, as root (v1 mode is the default)
-sudo python3 hypo-run.py --dry-run                 # preflight + plan only (zero side effects)
-sudo python3 hypo-run.py --labs 1,3-5,7 --yes     # run selected labs (v1 policies) without prompts
-sudo python3 hypo-run.py --labs all --yes         # run every runnable lab (v1)
-sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor   # v2 sweep (process rules)
-sudo python3 hypo-run.py                          # interactive: pick labs, confirm each
+sudo python3 hypo-run.py --dry-run                        # preflight + plan only (zero side effects)
+sudo python3 hypo-run.py --labs 2 --yes                   # run hypothesis 2
+sudo python3 hypo-run.py --labs 2-8 --yes                 # run hypotheses 2 through 8
+sudo python3 hypo-run.py --labs all --yes                 # run every lab that has a v1 form
+sudo python3 hypo-run.py --labs 1 --policy-mode v1 --yes  # H01 -> reports "not supported in v1"
 ```
+
+**v2 mode (CRS 1.46 policies — process/exec rules; required for H01, H20):**
+
+```bash
+sudo python3 hypo-run.py --labs 1 --policy-mode v2 --yes            # H01 runs (needs Postfix — v2 only)
+sudo python3 hypo-run.py --labs all --yes --policy-mode v2          # v2 sweep
+sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor  # also installs the v2 sensor chart
+```
+
+Notes:
+
+- `--policy-mode v1` is the default — you can omit it. `auto` picks the
+  form by each lab's CRS version.
+- `--setup-sensor` reinstalls the sensor chart for the mode (v1 -> 145,
+  v2 -> 146). **Only use it when you want a sensor restart** — if the
+  sensor is already running the right version, leave it off.
+- A lab whose policy form is missing reports `not supported in v1/v2`
+  instead of silently switching (H01, H20 have no v1 form).
+- Interactive: `sudo python3 hypo-run.py` — pick labs, confirm each.
 
 Key flags (all also settable via `HYPO_RUN_*` env vars):
 
 | Flag | Meaning |
 | ------ | --------- |
-| `--labs 1,3-5,7 / all` | selection (indices are fixed, natural order H01..H20) |
+| `--labs 1,3-5,7 / all` | selection by hypothesis number (QCS-H01 → 1 … QCS-H20 → 20); a lab that cannot run in the selected mode reports `not supported` |
 | `--backend auto/k8s/operator` | execution backend; auto = k8s API when a cluster answers |
 | `--policy-mode v1/v2/auto` | policy form; **default v1** (v2 has the process/exec rules), `auto` picks by CRS version |
 | `--labs-dir DIR` | lab directory (default: repo root) |
