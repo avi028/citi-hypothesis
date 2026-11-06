@@ -1,8 +1,8 @@
 # SESSION-HANDOFF — citi-hypothesis working notes (2026-11-06)
 
 Read this first in a new session. Repo = Qualys runtime-detection hypothesis
-labs (QCS-H01..H20); each lab ships `pod.yaml` + `policy-v1.yaml`/`policy-v2.yaml`
-+ `RESULT.md`. This session: fixing labs so their workloads self-drive and
+labs (QCS-H01..H20); each lab ships `pod.yaml`, `policy-v1.yaml`/`policy-v2.yaml`,
+and `RESULT.md`. This session: fixing labs so their workloads self-drive and
 verifying them on a live EC2 k8s lab.
 
 ## Environment access
