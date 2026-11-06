@@ -145,16 +145,16 @@ on memory-backed execs, DNS (UDP) visibility on network rules.
 | Lab | Hypothesis | Verdict | CRS |
 | --- | --- | --- |
 | `QCS-H01-host-file-access` | Container reads a controlled host path → detected with attribution | Supported | 1.46+ |
-| `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | 1.45+* |
+| `QCS-H02-runtime-file-drift` | Post-deploy file create/write/chmod/rename/exec/delete → detected; enforce mode kills the actor | Supported | `1.45+*` |
 | `QCS-H03-process-lineage` | Full parent/child lineage of a suspicious chain → recorded | Supported (immediate parent per event; pod fields need k8s) | 1.46+ |
 | `QCS-H04-fileless-exec` | Inline/stdin fileless execution → visible via activity; file-based script is the control | Partial (script body invisible for stdin; memfd fileless = next release) | 1.45+ |
 | `QCS-H05-east-west-visibility` | Cross-namespace connects → full 5-tuple + process + container per event | Supported (pod/ns names need k8s) | 1.45+ |
-| `QCS-H06-north-south` | Outbound connects incl. refused/blackholed → recorded; unlisted ports → not; UDP DNS → needs raw TP | Supported (scoped to watched ports; DNS needs `ip_output` fallback) | 1.45+* |
+| `QCS-H06-north-south` | Outbound connects incl. refused/blackholed → recorded; unlisted ports → not; UDP DNS → needs raw TP | Supported (scoped to watched ports; DNS needs `ip_output` fallback) | `1.45+*` |
 | `QCS-H07-netpol-denied` | Denied connection attempts → still recorded, identical to successes | Supported (attempt ≠ outcome; corroborate with platform logs) | 1.45+ |
 | `QCS-H08-data-exfil` | File read + outbound send correlated on same PID/parent chain, even via runtime script | Supported (contents never captured) | 1.45+ |
 | `QCS-H09-service-account-token` | SA token file open + K8s API egress → both recorded with process + container attribution | Supported (API request/verdict inside TLS → audit log only) | 1.45+ |
 | `QCS-H10-cross-ns-rbac` | Authorized vs unauthorized API calls → identical connect events with attribution | Supported (allow/deny only in K8s audit log) | 1.45+ |
-| `QCS-H11-priv-escalation` | Elevated exec (CAP_SYS_ADMIN) → cap-change event fires once; exec events carry cap sets | Supported (raw TP for caps; admission verdict is SCC's) | 1.46+* |
+| `QCS-H11-priv-escalation` | Elevated exec (CAP_SYS_ADMIN) → cap-change event fires once; exec events carry cap sets | Supported (raw TP for caps; admission verdict is SCC's) | `1.46+*` |
 | `QCS-H12-vuln-image-in-use` | Vuln package invoked in A → event; present-but-unused in B → none | Partial (runtime "in use" proven; scan leg is platform) | 1.46+ |
 | `QCS-H13-image-lineage-drift` | Post-deploy create/write/open recorded with attribution | Partial (drift proven; digest/layer diff is platform) | 1.45+ |
 | `QCS-H14-file-hash` | No hash fields/operators in events or policies | Not supported (path-only; hash search is platform) | 1.45+ |
@@ -261,6 +261,7 @@ their negative-control pods intentionally fail and the Job's ready-wait runs
 its budget; the test workloads still ran and produced evidence.
 
 ### v1 coverage per lab (H01–H20)
+
 **CRS version per lab**: `1.45+` = RuntimePolicy v1 suffices; `1.46+`
 = RuntimePolicy v2 required (process/exec rules); a `*` marks a lab with
 one leg that needs a raw Cilium TracingPolicy hook (future release).
@@ -357,7 +358,6 @@ the skill (`citi-hypothesis-labs`) so new labs follow the same rule.
 Rule for all labs: if a hypothesis point has no live evidence, it MUST be
 listed here AND in the lab's RESULT.md point table — never silently
 dropped.
-
 
 ## Execution coverage matrix
 
@@ -544,6 +544,7 @@ eBPF-Agent events observed (policy `citi-h03-process-lineage`, marker `CITI-H03-
 ### 2026-11-03 — H02 quick run (audit + enforce) and execution-point coverage
 
 Change done:
+
 - Added "Execution-point coverage" section (this README) + mandatory point-by-point
   tables in RESULT.md (skill rule) — H01 table updated to the original
   hypothesis execution flow (E1–E5); not-covered points listed above.

@@ -566,7 +566,7 @@ spec:
 
 The complete chain, in order:
 
-```
+```text
 docker exec → sh (the entry point)
     └─ /tmp/citi-h03-chain.sh        ← flagged by the policy as suspicious
         ├─ sleep 300                  ← long-lived, later killed → exit recorded
@@ -1358,7 +1358,7 @@ spec:
 
 Upload 1 (direct `wget`):
 
-```
+```text
 wget (pid N)  → opened /tmp/citi-h08-payload.txt   [payload-open rule]
 wget (pid N)  → connected 172.19.0.2:8080          [egress-audit rule]
 parent: /bin/sh
@@ -1366,7 +1366,7 @@ parent: /bin/sh
 
 Upload 2 (runtime script):
 
-```
+```text
 /bin/sh → /tmp/citi-h08-upload.sh → wget (pid M)
                                     → opened the payload file
                                     → connected to the receiver
