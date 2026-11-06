@@ -91,11 +91,16 @@ spec:
       echo "== 1. read mounted SA token material =="
       ls -l "$SADIR"
       cat "$SADIR/namespace"
+      sleep 1   # >1s gaps so the 1s/pod file-open rate limit keeps each event
       wc -c < "$SADIR/token"
       echo "== 2. authorized query (own namespace) =="
       curl -sS --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $(cat $SADIR/token)" \
         "$API/api/v1/namespaces/citi-h09/configmaps" | head -20
+      # space the API calls >1s apart: the v1 net-tcp-open policy
+      # rate-limits to 1 event/sec/pod, so back-to-back connects lose the
+      # second event (same fix as QCS-H08)
+      sleep 2
       echo "== 3. unauthorized query (other namespace) =="
       curl -sS --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $(cat $SADIR/token)" \
