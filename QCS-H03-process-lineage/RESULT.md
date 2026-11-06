@@ -85,3 +85,5 @@ child.
 | `policy.yaml` | Flags the suspicious script exec (audit mode) |
 | `pod.yaml` | Apply to the cluster to generate the process chain |
 | `RESULT.md` | This document |
+
+EC2 verification (`hypo-run.py --labs 3`, v1 mode, 2026-11-06): **PROVEN** — 17 matching events.

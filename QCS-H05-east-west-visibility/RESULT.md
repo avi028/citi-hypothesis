@@ -84,3 +84,5 @@ points not covered".
 | `policy-v1.yaml` / `policy-v2.yaml` | egress audit rule for the service port |
 | `pod.yaml` | two namespaces, Service (pinned ClusterIP) + NetworkPolicy + client |
 | `RESULT.md` | this document |
+
+EC2 verification (`hypo-run.py --labs 5`, v1 mode, 2026-11-06): **PROVEN** — 12 matching events.

@@ -116,3 +116,5 @@ process rule.
 
 Two-phase flow: `sudo python3 hypo-run.py --labs 2 --yes` runs audit →
 enforcement automatically (v1 default; `--policy-mode v2` for v2).
+
+EC2 verification (`hypo-run.py --labs 2`, v1 mode, 2026-11-06): **PROVEN** — 16 matching events.

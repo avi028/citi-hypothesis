@@ -74,3 +74,4 @@ that leg is a next-release item.
 `tracingpolicy-dns.yaml` was removed — agent 1.8 logs DNS natively
 (`MSG_OP_QUALYS_DNS`), including pod lookups to external resolvers.
 Cluster-internal (kube-dns) DNS remains a next-release item.
+EC2 verification (`hypo-run.py --labs 6`, v1 mode, 2026-11-06): **PROVEN** — 11 matching events.

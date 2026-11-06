@@ -127,3 +127,5 @@ is the planned next-release path.
 
 Raw TracingPolicy forms (`tracingpolicy*.yaml`, `policy-memfd-block.yaml`)
 were removed — memfd/fileless support is a **next-release** item.
+
+EC2 verification (`hypo-run.py --labs 4`, v1 mode, 2026-11-06): **PROVEN** — 26 matching events.
