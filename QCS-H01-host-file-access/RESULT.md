@@ -15,8 +15,9 @@ path operator in `policy-v2.yaml`. **v1 cannot express this lab**: v1
 there is **no Postfix** in v1 — so v1 cannot determine the host file. A v1
 prefix on the mount directory would over-match (every file under the
 directory, and it breaks if the mount point differs) and cannot scope to
-the canary itself. In v1 mode this lab is **NOT covered**; v1-default runs
-fall back to `policy-v2.yaml`.
+the canary itself. In v1 mode this lab is **NOT supported** — the runner
+reports `not supported in v1` rather than silently switching to v2
+(run `--policy-mode v2` to execute it).
 
 ## What we did
 
@@ -83,5 +84,5 @@ See README "Execution points not covered".
 | `RESULT.md` | This document |
 
 No `policy-v1.yaml` — v1 has no Postfix and **cannot express this lab**;
-v1-default runs auto-fall back to `policy-v2.yaml` (same pattern as
-QCS-H20).
+v1 runs report `not supported in v1` (same pattern as QCS-H20) — use
+`--policy-mode v2`.

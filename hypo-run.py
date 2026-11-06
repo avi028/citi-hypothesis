@@ -125,7 +125,7 @@ from collections import OrderedDict
 from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -1041,14 +1041,23 @@ def scan_labs(labs_dir):
         lab["mode"] = policy_mode_for(lab["crs_version"])
         chosen = lab["policy_v2_path"] if lab["mode"] == "v2" else lab["policy_v1_path"]
         if not os.path.isfile(chosen):
-            # fall back to the other form with a note
             alt = lab["policy_v1_path"] if lab["mode"] == "v2" else lab["policy_v2_path"]
-            if os.path.isfile(alt):
+            if CFG.policy_mode == "auto" and os.path.isfile(alt):
+                # auto mode picks whichever form exists
                 lab["mode"] = "v1" if lab["mode"] == "v2" else "v2"
                 chosen = alt
+            elif os.path.isfile(alt):
+                # explicit mode requested but only the other form ships:
+                # report "not supported in <mode>" instead of silently
+                # switching (H01/H20 have no v1 form)
+                lab["unsupported_mode"] = True
         lab["policy_path"] = chosen
         problems = []
-        if not os.path.isfile(lab["policy_path"]):
+        if lab.get("unsupported_mode"):
+            other = "v2" if lab["mode"] == "v1" else "v1"
+            problems.append("not supported in %s (only a %s policy form exists — use --policy-mode %s)"
+                            % (lab["mode"], other, other))
+        elif not os.path.isfile(lab["policy_path"]):
             problems.append("missing %s" % os.path.basename(chosen))
         if not os.path.isfile(lab["pod_path"]):
             problems.append("missing pod.yaml")

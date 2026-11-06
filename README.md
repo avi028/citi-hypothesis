@@ -306,8 +306,9 @@ expressed in v1 it is flagged in the lab's policy file and listed here:
   scope to the specific host file — v1 `monitor-paths` are Prefix-only, so
   v1 cannot determine the host file; no `policy-v1.yaml`) and H20
   (volume-mount monitoring — no `policy-v1.yaml`; mounted-volume file
-  activity is v2, and the mount syscall leg is **next release**). Both
-  auto-fall back to `policy-v2.yaml` in v1-default runs (see RESULT.md).
+  activity is v2, and the mount syscall leg is **next release**). v1 runs
+  report `not supported in v1` for these instead of silently switching —
+  use `--policy-mode v2` to run them.
 
 #### v1 process-visibility evidence (how v1 process labs are judged)
 

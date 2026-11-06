@@ -109,8 +109,8 @@ in v1 mode.
 
 ### RuntimePolicy v1 — not shipped
 
-No `policy-v1.yaml` — v1 has no Postfix and **cannot express this lab**; v1-default
-runs auto-fall back to `policy-v2.yaml` (same pattern as QCS-H20).
+No `policy-v1.yaml` — v1 has no Postfix and **cannot express this lab**; v1 runs
+report `not supported in v1` rather than switching (same pattern as QCS-H20).
 
 ### RuntimePolicy v2 — `QCS-H01-host-file-access/policy-v2.yaml`
 
@@ -3182,7 +3182,7 @@ syscall hook capturing source/target/fstype/flags). It cannot be applied
 in the k8s flow and has been **removed — mount-syscall monitoring is a
 next-release item** (v2 has no syscall rule type yet).
 
-### RuntimePolicy v2 — `QCS-H20-volume-mount-monitoring/policy.yaml`
+### RuntimePolicy v2 — `QCS-H20-volume-mount-monitoring/policy-v2.yaml`
 
 ```yaml
 # v2 cannot express the mount(2) syscall; this rule watches file activity

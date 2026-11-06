@@ -166,11 +166,13 @@ try:
     ]:
         with open(os.path.join(tmp, d, "policy-v2.yaml"), "w") as f:
             f.write(pol_txt)
+        with open(os.path.join(tmp, d, "policy-v1.yaml"), "w") as f:
+            f.write("apiVersion: qualys.com/v1\nkind: RuntimePolicy\nmetadata:\n  name: citi-h02\nspec:\n  base-policy: file-read\n  action: audit\n")
         with open(os.path.join(tmp, d, "pod.yaml"), "w") as f:
             f.write(pod_txt)
         with open(os.path.join(tmp, d, "RESULT.md"), "w") as f:
             f.write("# T\n\n## Verdict\n\n**Supported** — yes\n")
-    with open(os.path.join(tmp, "QCS-H03-bad-yaml", "policy-v2.yaml"), "w") as f:
+    with open(os.path.join(tmp, "QCS-H03-bad-yaml", "policy-v1.yaml"), "w") as f:
         f.write(": : : : :\nnot: [valid\n")
     with open(os.path.join(tmp, "QCS-H03-bad-yaml", "pod.yaml"), "w") as f:
         f.write("kind: Pod\n")
@@ -203,13 +205,22 @@ try:
         f.write("apiVersion: v1\nkind: Pod\nmetadata:\n  name: p-enforce\nspec:\n  containers:\n  - name: c\n    image: busybox\n    command: [\"sh\", \"-c\", \"echo evil > /tmp/citi-h23-block/evil.sh\"]\n")
     with open(os.path.join(tmp, "QCS-H23-enforce", "RESULT.md"), "w") as f:
         f.write("# T\n\n## Verdict\n\n**Supported** - yes\n")
+    # v2-only lab (QCS-H01 pattern): no policy-v1.yaml -> not supported in v1
+    os.makedirs(os.path.join(tmp, "QCS-H24-v2only"))
+    with open(os.path.join(tmp, "QCS-H24-v2only", "policy-v2.yaml"), "w") as f:
+        f.write("apiVersion: qualys.com/v2\nkind: RuntimePolicy\nmetadata:\n  name: citi-h24\nspec:\n  rules: []\n")
+    with open(os.path.join(tmp, "QCS-H24-v2only", "pod.yaml"), "w") as f:
+        f.write("apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: busybox\n")
+    with open(os.path.join(tmp, "QCS-H24-v2only", "RESULT.md"), "w") as f:
+        f.write("# T\n\n## Verdict\n\n**Supported** - yes\n")
     runnable, not_runnable = m.scan_labs(tmp)
     names = [l["name"] for l in runnable]
     check("natural order H02 before H10", names == ["QCS-H02-ok", "QCS-H10-ok", "QCS-H21-v1only", "QCS-H22-v1default", "QCS-H23-enforce"])
-    check("not-runnable listed", [l["name"] for l in not_runnable] == ["QCS-H01-no-pod", "QCS-H03-bad-yaml"])
+    check("not-runnable listed", [l["name"] for l in not_runnable] == ["QCS-H01-no-pod", "QCS-H03-bad-yaml", "QCS-H24-v2only"])
     reasons = {l["name"]: l["reason"] for l in not_runnable}
     check("reason: missing pod.yaml", "missing pod.yaml" in reasons.get("QCS-H01-no-pod", ""))
     check("reason: malformed yaml", "malformed" in reasons.get("QCS-H03-bad-yaml", "").lower() or "yaml" in reasons.get("QCS-H03-bad-yaml", "").lower())
+    check("reason: not supported in v1", "not supported in v1" in reasons.get("QCS-H24-v2only", ""))
     check("verdict parsed", runnable[0]["verdict"].startswith("Supported"))
     check("policy name parsed", runnable[0]["policy"]["name"] == "citi-h02")
     check("pod image parsed", runnable[0]["pod"]["image"] == "debian:stable-slim")
