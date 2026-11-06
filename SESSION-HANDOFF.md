@@ -101,11 +101,15 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 
 ## Working through labs — where we are / what's next
 
-- Done + verified live: H07, H08, H09.
+- Done + verified live: H07, H08, H09, H10.
 - **H09 verified (2026-11-06):** PROVEN, 22 events — token opens + both
   API connects recorded ~2s apart after adding `sleep 1/2` between the
   reads/curls (commit `c8747ed`). Its pod.yaml already self-drove; only
   the rate-limit spacing was needed.
-- **Next: H10+ in sequence** — apply the same checklist: does pod.yaml
+- **H10 verified (2026-11-06):** PROVEN, 20 events — 4 API calls
+  (2 allowed + 2 denied on :443) each produced a `Network Activity`
+  connect ~2s apart after `sleep 2` spacing (commit `bf36884`).
+- **Next: H11+ in sequence** — apply the same checklist: does pod.yaml
   generate its own activity? is the target defined in-file? are
-  consecutive connects >1s apart?
+  consecutive connects >1s apart? H11 is 1.46+ → needs
+  `--policy-mode v2` and `--enable-process-cred` for cap context.

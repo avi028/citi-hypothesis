@@ -20,18 +20,26 @@ the connection; the audit log proves the identity and the denial.
 
 - Policy: file-open audit on the service-account mount + egress audit on
   API ports 443/6443 (same pattern as QCS-H09)
-- Workload (cluster): read the SA token (as an API client would), then
-  made an allowed query and a denied query to the API port, plus one
-  connection to an unreachable port
+- Workload (cluster): a pod with token automount that read the SA token,
+  then made **four real API calls** to `kubernetes.default:443` — two
+  authorized (list + get ConfigMaps in `citi-h10-src`, its SA's only
+  scope) and two unauthorized (the same queries against `citi-h10-dst`,
+  answered 403). Calls are spaced 2s apart so each produces an event
+  under the v1 `1s`/pod rate limit (same fix as H08/H09).
 
 ## What we observed
 
+Live on the EC2 cluster (2026-11-06), `hypo-run.py --labs 10` (v1
+policies): **PROVEN — 20 matching events in 54.2s**, including the API
+connects landing **~2s apart, one per call**:
+
 | Operation | Event recorded | What it shows |
 | --- | --- | --- |
-| Client reads SA token | file-open on the token path | binary + parent + container ID |
-| Authorized query (source ns) | `tcp_connect` → :6443 | full tuple + attribution |
-| **Denied** query (target ns) | `tcp_connect` → :6443 | **identical** to the authorized event |
-| Unreachable API port (refused) | `tcp_connect` → refused port | also identical — attempt, not outcome |
+| Client reads SA token | file-open on the token path | binary + parent + pod/ns + container ID |
+| Authorized query #1 (list, source ns) | `Network Activity` → `kubernetes.default:443` | full tuple + attribution |
+| Authorized query #2 (get, source ns) | `Network Activity` → :443, ~2s later | identical shape |
+| **Denied** query #1 (list, target ns) | `Network Activity` → :443, ~2s later | **identical** to the authorized events |
+| **Denied** query #2 (get, target ns) | `Network Activity` → :443, ~2s later | also identical — attempt, not outcome |
 
 The two lessons from earlier labs stack here:
 
