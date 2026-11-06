@@ -92,8 +92,10 @@ EXIT CODES
    killed but installed policies are LEFT IN PLACE and listed as
    "left installed" in the report (never raced with a delete).
 9. No TTY: no interactive prompts (selection falls back to --labs or
-   "all"), no ANSI anywhere (we emit plain ASCII), command output decoded
-   with errors="replace". Output width falls back to 80.
+   "all"), no ANSI anywhere (plain ASCII when stdout is not a TTY;
+   interactive terminals get ANSI color unless --no-color / NO_COLOR),
+   command output decoded with errors="replace". The --log-file always
+   receives the plain, color-stripped line.
 10. docker fallback: when kubectl is absent or the cluster is unreachable,
     the tool falls back to running the lab's pod image via docker (parsed
     from pod.yaml); this is weaker evidence and is flagged as such.
@@ -125,7 +127,7 @@ from collections import OrderedDict
 from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -149,6 +151,7 @@ DEFAULTS = {
     "max_log_bytes": 20 * 1024 * 1024,
     "max_events": 20,
     "labs": None,
+    "no_color": False,
 }
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -191,7 +194,7 @@ class Abort(Exception):
 
 
 # --------------------------------------------------------------------------
-# output helpers (plain ASCII, no colors; tee to log file)
+# output helpers (ASCII text; ANSI color on a TTY; tee plain text to log file)
 # --------------------------------------------------------------------------
 
 LOG_FH = None
@@ -208,11 +211,53 @@ def _ascii(s):
     return s.encode("ascii", errors="replace").decode("ascii")
 
 
-def log(msg=""):
+# ANSI color layer — applied to the TTY only; the log file and non-TTY
+# output always get the plain line. Order matters: NOT-PROVEN is tried
+# before PROVEN so the bare token never matches inside the hyphenated one.
+_TOKEN_COLOR = {
+    "[WARN]": "33",   # yellow
+    "[INFO]": "36",   # cyan
+    "[FAIL]": "31",   # red
+    "NOT-PROVEN": "31",
+    "PROVEN": "32",   # green
+    "SKIPPED": "33",
+    "ABORTED": "31",
+    "FINISHED": "32",
+}
+_COLOR_RE = re.compile(
+    r"(\[WARN\]|\[INFO\]|\[FAIL\]|NOT-PROVEN|PROVEN|SKIPPED|ABORTED|FINISHED)")
+_PHASE_RE = re.compile(r"^== .* ==$")
+
+
+def _colors_on():
+    try:
+        return sys.stdout.isatty() and not getattr(CFG, "no_color", False)
+    except Exception:
+        return False
+
+
+def _colorize(line):
+    """Wrap status tokens in ANSI colors; bold the section banners."""
+    def repl(m):
+        tok = m.group(1)
+        return "\x1b[%sm%s\x1b[0m" % (_TOKEN_COLOR[tok], tok)
+    out = _COLOR_RE.sub(repl, line)
+    if _PHASE_RE.match(line):
+        return "\x1b[1;36m" + out + "\x1b[0m"
+    if (line.startswith(">>> ") or line.startswith("<<< ")
+            or line.startswith("HYPOTHESIS:")
+            or line.startswith("CONSOLIDATED SUMMARY")):
+        return "\x1b[1m" + out + "\x1b[0m"
+    if line.startswith("+ "):
+        return "\x1b[2m" + out + "\x1b[0m"
+    return out
+
+
+def _emit(msg, stream):
     line = _ascii(msg)
     try:
-        sys.stdout.write(line + "\n")
-        sys.stdout.flush()
+        stream.write((_colorize(line) if _colors_on() else line) + "\n")
+        stream.flush()
     except Exception:
         pass
     if LOG_FH is not None:
@@ -221,21 +266,14 @@ def log(msg=""):
             LOG_FH.flush()
         except Exception:
             pass
+
+
+def log(msg=""):
+    _emit(msg, sys.stdout)
 
 
 def logerr(msg):
-    line = _ascii(msg)
-    try:
-        sys.stderr.write(line + "\n")
-        sys.stderr.flush()
-    except Exception:
-        pass
-    if LOG_FH is not None:
-        try:
-            LOG_FH.write(line + "\n")
-            LOG_FH.flush()
-        except Exception:
-            pass
+    _emit(msg, sys.stderr)
 
 
 def has_tty():
@@ -252,7 +290,7 @@ def prompt(msg, default=None):
             return default
         raise Abort()
     try:
-        val = input(msg)
+        val = input(_colorize(_ascii(msg)) if _colors_on() else msg)
     except EOFError:
         raise Abort()
     except KeyboardInterrupt:
@@ -504,6 +542,8 @@ def build_cfg(argv=None):
                    help="install the CRS sensor chart per policy mode before running "
                         "(v1 -> HYPO_RUN_CRS_DIR_V1, default /home/ubuntu/arnav/145; "
                         "v2 -> HYPO_RUN_CRS_DIR_V2, default /home/ubuntu/arnav/146)")
+    p.add_argument("--no-color", action="store_true",
+                   help="disable ANSI colors (also honored: NO_COLOR, HYPO_RUN_NO_COLOR)")
     p.add_argument("--version", action="version", version="hypo-run " + __version__)
     args = p.parse_args(argv)
 
@@ -530,6 +570,8 @@ def build_cfg(argv=None):
     if cfg.policy_mode not in ("auto", "v1", "v2"):
         p.error("--policy-mode must be auto, v1, or v2")
     cfg.setup_sensor = args.setup_sensor or env_bool("HYPO_RUN_SETUP_SENSOR")
+    cfg.no_color = (args.no_color or env_bool("HYPO_RUN_NO_COLOR")
+                    or os.environ.get("NO_COLOR") is not None)
     cfg.crs_dir_v1 = os.environ.get("HYPO_RUN_CRS_DIR_V1", "/home/ubuntu/arnav/145")
     cfg.crs_dir_v2 = os.environ.get("HYPO_RUN_CRS_DIR_V2", "/home/ubuntu/arnav/146")
 
@@ -2459,6 +2501,11 @@ def main():
     for _s in (sys.stdout, sys.stderr):
         try:
             _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if os.name == "nt":
+        try:
+            os.system("")   # enable ANSI/VT processing on the Windows console
         except Exception:
             pass
     CFG = build_cfg()
