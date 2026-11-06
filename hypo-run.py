@@ -481,7 +481,8 @@ def build_cfg(argv=None):
     p.add_argument("--log-file", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--verbose", action="store_true")
-    p.add_argument("--debug", action="store_true")
+    p.add_argument("--debug", action="store_true",
+                   help="verbose logging AND evidence grep + verdict; without it each lab just runs and reports FINISHED")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--no-prompt", action="store_true")
     p.add_argument("--fail-fast", action="store_true")
@@ -2267,6 +2268,15 @@ def run_lab(lab, idx, ctx):
         log("")
         log("waiting %ds for events to settle..." % CFG.settle)
         sleep_check(CFG.settle)
+        if not CFG.debug:
+            lr.verdict = "FINISHED"
+            log("lab finished - review the events in the Qualys UI "
+                "(no verdict: evidence grep runs only with --debug)")
+            if lab.get("enforce_policy_path") and CFG.backend == "k8s":
+                run_enforce_phase(lab, ctx, lr)
+            else:
+                cleanup_lab(lab, ctx, lr)
+            return lr
         log("grepping evidence (policy '%s')..." % ((lab["policy"] or {}).get("name") or lab["name"]))
         evidence, ev_counts = grep_evidence(lab, ctx, lr, since=t0)
         lr.evidence_count = len(evidence)
