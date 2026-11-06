@@ -30,7 +30,9 @@ spec:
       # runtime copy of the same bytes into the writable path
       mkdir -p /tmp
       cp /etc/citi-h14-marker.txt /tmp/citi-h14-marker.txt
+      sleep 1   # >1s gaps so the 1s/pod file-open rate limit keeps each event
       sha256sum /tmp/citi-h14-marker.txt
+      sleep 1
       cat /tmp/citi-h14-marker.txt
       sleep 3600
     securityContext:
