@@ -29,6 +29,11 @@ attribution — but no hash anywhere in the event args. No policy construct
 can express "match this sha256": the events record *what was opened*,
 never *what the bytes were*.
 
+EC2 run (`hypo-run.py --labs 14`, v1 mode, 2026-11-06): **PROVEN** —
+11 matching events in 51.5s (path-based file-open/create on the marker,
+per-pod attribution). The workload sleeps 1s between marker opens so the
+v1 `1s`/pod rate limit keeps each event.
+
 ## The honest split
 
 | Ask | Where it works |
