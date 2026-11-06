@@ -29,6 +29,12 @@ window) — the sensor itself does not delete evidence with the pod.
 - The payload marker is also searchable — events were recovered by marker
   even after the container id lookup.
 
+EC2 run (`hypo-run.py --labs 17`, v1 mode, 2026-11-06): **PROVEN** —
+30 matching events in 19.4s for the short-lived Job's file + exec +
+network sequence (the Job's wget now hits a real `citi-h17-svc` receiver
+shipped in `pod.yaml` — previously the name didn't resolve, so the
+network leg produced no event).
+
 ## What "retention" means where
 
 | Ask | Where it works |
