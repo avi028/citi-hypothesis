@@ -24,8 +24,9 @@ that leg is a next-release item.
 
 - Policy: audit outbound TCP to ports 80/443/8080
 - Workload (cluster): resolved `example.com`, connected to it on :80 and
-  :443, and attempted :9090 (outside the policy list) — real north-south
-  (external) traffic
+  :443, attempted :9090 (outside the policy list), and connected to an
+  **unreachable IP** on a watched port — real north-south (external)
+  traffic
 
 ## What we observed
 
@@ -34,6 +35,7 @@ that leg is a next-release item.
 | Connect to `example.com:80` (external, success) | Yes — full 5-tuple + process (`curl`) |
 | Connect to `example.com:443` (external, TLS) | Yes — identical record shape |
 | Connect to port 9090 — not in the policy list | No — policy-scoped visibility |
+| Connect to unreachable IP `10.255.255.1:8080` | **Yes** — the attempt registers an event even though nothing answers |
 | DNS lookup of `example.com` (external resolver) | **Yes** — `MSG_OP_QUALYS_DNS` with pod src IP, fqdn + answers |
 | DNS lookup served by kube-dns (cluster-internal) | No — not emitted in this build; next release |
 
@@ -56,7 +58,7 @@ that leg is a next-release item.
 | E2 | Separate approved test dest | **YES** (live) | `tcp_connect` → `example.com:443` (external) |
 | E3 | DNS resolution then TCP/HTTP | **YES** (live) | `MSG_OP_QUALYS_DNS` for `example.com` (pod src IP + answers) then `tcp_connect` — both legs recorded |
 | E4a | Connection to blocked/unlisted port (:9090) | **YES** (live) | **NO event** — ports outside the policy are invisible (policy-scoped) |
-| E4b | Connection to watched port, dropped by firewall | **YES** (live) | client timed out but `tcp_connect` **still recorded** — attempt, not outcome |
+| E4b | Connection to watched port, unreachable/dropped | **YES** (live) | `10.255.255.1:8080` connect timed out but the `Network Activity` event **still recorded** — attempt, not outcome |
 | E5 | DNS, dst address, port, process, container attribution | **YES** (live) | TCP legs carry tuple + process + container; the DNS event carries fqdn + answers + pod src IP |
 
 **Not covered live:** S3 (OpenShift egress controls — platform).

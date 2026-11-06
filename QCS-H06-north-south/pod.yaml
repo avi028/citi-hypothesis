@@ -37,6 +37,9 @@ spec:
       curl -sk --connect-timeout 3 -o /dev/null "https://$APPROVED:443/" || true
       # attempt on a port outside the approved/monitored set
       curl -s --connect-timeout 2 -o /dev/null "http://$APPROVED:9090/" || true
+      # unreachable destination (watched port) — the attempt must still
+      # register an event even though nothing answers
+      curl -s --connect-timeout 2 -o /dev/null "http://10.255.255.1:8080/" || true
       sleep 3600
     securityContext:
       allowPrivilegeEscalation: false
