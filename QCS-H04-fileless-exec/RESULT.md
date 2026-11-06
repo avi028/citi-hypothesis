@@ -23,9 +23,10 @@ this release IT shall be supported in the next release**.
   egress audit), waited for approval, ran `pod.yaml`, grepped the sensor
   logs for the detection payloads.
 - `pod.yaml` runs four cases:
-  - **Case 1:** `sh -c '...script...'` — script embedded in the command
+  - **Case 1:** `sh -c '...script...'` — script embedded in the command;
+    also attempts an outbound connect (`curl` → :443)
   - **Case 2:** `sh` with the script fed in over standard input — nothing
-    stored anywhere
+    stored anywhere; same outbound connect
   - **Case 3 (E5 control):** a file-based script (`/tmp/citi-h04-file.sh`)
     — the launch record's binary is the script path
 
@@ -38,6 +39,7 @@ this release IT shall be supported in the next release**.
 | Binary field | interpreter (`sh`) | interpreter (`sh`) | **the script path** (`/tmp/citi-h04-file.sh`) |
 | Child processes seen | Yes (`cat`, `sleep` — parent = the shell) | Yes (same) | Yes (same) |
 | File it touched | Canary-open event recorded | Canary-open event recorded | Canary-open event recorded |
+| Outbound connect | **Yes** — `Network Activity` payload (curl → :443), attributed to `citi-h04-egress-audit` | **Yes** — same | — (control: no egress) |
 
 Evidence from the v1 run (windowed to the lab, PROVEN): `Process-exec
 event payload` lines for the inline/stdin/file-backed execs, a `File event
@@ -92,7 +94,7 @@ is the planned next-release path.
 |---|---|---|---|
 | E1 | Inline shell via `sh -c` | **YES** (live, v1) | `Process-exec event payload` — argv carries the **full inline script** |
 | E2 | Script via standard input | **YES** (live, v1) | interpreter exec recorded; script body **not** visible (pod form: heredoc sits in the outer `sh -c` args) |
-| E3 | Process, file-read, and network events from the inline script | **YES** (live, v1) | child `cat` → canary-open `File event payload`; egress leg via `net-tcp-open` |
+| E3 | Process, file-read, and network events from the inline script | **YES** (live, v1) | child `cat` → canary-open `File event payload`; `curl` → :443 `Network Activity` payload attributed to `citi-h04-egress-audit` |
 | E4 | Interpreter, full command line, children, associated activity | **YES PARTIAL (file open)** | interpreter ✓; cmdline ✓ for `-c`, ✗ for stdin; children + file-open + network activity ✓ — matches the annotation |
 | E5 | Compare with file-based script scenario | **YES** (live, v1) | case 3 in `pod.yaml`: file-based exec shows binary = `/tmp/citi-h04-file.sh` (script name visible); inline/stdin show only the interpreter |
 | E6 | memfd fileless exec (audit + block) | **NOT COVERED — next release** | needs a raw `sys_memfd_create` TracingPolicy; raw-TP form removed from the lab (cannot apply in the k8s flow) |
@@ -110,6 +112,7 @@ is the planned next-release path.
 {"process_exec":   {"process": {"binary": "/tmp/citi-h04-file.sh", "arguments": "/tmp/citi-h04-file.sh"}}}
 // v1 policy payloads
 {"File event payload": "canary open (citi-h04-canary-open, file-open)"}
+{"Network Activity payload": "curl → :443, actor attributed to citi-h04-egress-audit"}
 {"Process-exec event payload": "inline/stdin/file-backed execs, attributed to the shell"}
 // memfd (next release): raw TracingPolicy on sys_memfd_create only
 ```

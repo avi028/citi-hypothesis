@@ -7,7 +7,9 @@
 #   2. runs an inline `sh -c` command touching it,
 #   3. feeds a whole script to the interpreter over stdin (nothing stored),
 #   4. runs a FILE-BASED script (the E5 control — binary is the script path),
-# generating process, file-open and egress activity for the sensor.
+# generating process, file-open and egress activity for the sensor. The
+# fileless cases also attempt an outbound connection (egress leg) — a
+# fileless script phoning out is the activity the policy watches for.
 # No special SCC needed.
 apiVersion: v1
 kind: Namespace
@@ -25,7 +27,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: workload
-    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    image: registry.access.redhat.com/ubi9/ubi:latest
     command:
     - sh
     - -c
@@ -34,12 +36,13 @@ spec:
       echo "$MARKER" > /etc/citi-h04-canary.txt
 
       # case 1: inline -c — the whole script IS the command line
-      sh -c "echo $MARKER-inline; cat /etc/citi-h04-canary.txt; sleep 1"
+      sh -c "echo $MARKER-inline; cat /etc/citi-h04-canary.txt; curl -sk --connect-timeout 2 -o /dev/null https://kubernetes.default.svc:443/ || true; sleep 1"
 
       # case 2: stdin script — no file, no command-line content
       sh <<'EOF'
       echo "CITI-H04-stdin"
       cat /etc/citi-h04-canary.txt
+      curl -sk --connect-timeout 2 -o /dev/null https://kubernetes.default.svc:443/ || true
       sleep 1
       EOF
 
