@@ -710,9 +710,40 @@ def k8s_sensor_pods():
     return [l.strip() for l in out.splitlines() if "qualys-runtime-sensor" in l]
 
 
-# --------------------------------------------------------------------------
-# phase 1: preflight
-# --------------------------------------------------------------------------
+_SENSOR_DEBUG_RE = re.compile(r"\bDEBUG\b|level[=:]\s*\"?debug\"?", re.IGNORECASE)
+
+
+def _sensor_log_sample(pod, path, tail=2000):
+    """Tail of a sensor log file; kubectl exec first, `kubectl logs` as
+    fallback (the sensor can SIGKILL readers of its own log files)."""
+    rc, out, _ = run(["kubectl", "exec", "-n", "qualys", pod, "--",
+                      "tail", "-n", str(tail), path],
+                     timeout=CFG.timeout_cmd, quiet=True)
+    if rc == 0 and out:
+        return out
+    rc, out, _ = run(["kubectl", "logs", "-n", "qualys", pod,
+                      "--tail=%d" % tail], timeout=CFG.timeout_cmd, quiet=True)
+    return out or ""
+
+
+def sensor_debug_state():
+    """'ok' = DEBUG-level records present in the sensor log; 'off' = log
+    readable but zero DEBUG records; 'unknown' = sensor/log unreadable."""
+    pods = k8s_sensor_pods()
+    if not pods:
+        return "unknown"
+    saw_log = False
+    for pod in pods:
+        for f in ("/usr/local/qualys/runtime-sensor/data/logs/runtime_sensor.log",
+                  "/usr/local/qualys/runtime-sensor/data/logs/ebpfAgentLogFile.log"):
+            txt = _sensor_log_sample(pod, f)
+            if not txt:
+                continue
+            saw_log = True
+            if _SENSOR_DEBUG_RE.search(txt):
+                return "ok"
+    return "off" if saw_log else "unknown"
+
 
 # --------------------------------------------------------------------------
 # phase 1: preflight
@@ -2642,6 +2673,20 @@ def main():
             exit_reason = "dry-run"
             return 0
 
+        # --debug greps DEBUG-level payload lines from the sensor log; if
+        # the sensor is not logging at DEBUG the evidence window is empty
+        # and labs would false-report NOT-PROVEN. Refuse to run instead.
+        if CFG.debug and CFG.backend == "k8s":
+            dstate = sensor_debug_state()
+            if dstate == "off":
+                logerr("[FAIL] --debug needs DEBUG-level sensor logging — the "
+                       "sensor log has no DEBUG records. Enable debug logging on "
+                       "the sensor, or rerun without --debug.")
+                exit_reason = "sensor-debug-off"
+                return
+            if dstate == "unknown":
+                log("[WARN] could not read the sensor log — cannot verify DEBUG logging is on")
+
         # phase 3 — selection order preserved; not-runnable picks report
         # their reason; per-lab verdict printed as each finishes
         log("")
@@ -2735,7 +2780,8 @@ def main():
                 pass
         if exit_reason == "interrupted":
             return 130
-        if exit_reason in ("preflight-failed", "no-runnable-labs", "env-error"):
+        if exit_reason in ("preflight-failed", "no-runnable-labs", "env-error",
+                           "sensor-debug-off"):
             return 1
         if exit_reason == "usage-error":
             return 2

@@ -77,6 +77,12 @@ ABORTED**), and the consolidated `hypo-run-<ts>.{json,md}` reports carry
 the evidence counts. Use it when you want machine-checked evidence
 rather than a UI review.
 
+`--debug` requires the sensor to log at **DEBUG level** — the payload
+lines the evidence grep counts on are emitted at DEBUG. Before running,
+the script samples the sensor log and aborts (`sensor-debug-off`, exit 1)
+if no DEBUG records are present, instead of silently reporting false
+NOT-PROVEN verdicts.
+
 **Interactive:** `sudo python3 hypo-run.py` — pick labs, confirm each.
 
 ### Policy modes: v1 (default), v2, auto
