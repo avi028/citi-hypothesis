@@ -3,74 +3,78 @@
 ## What we wanted to prove
 
 When a pod in one namespace talks to a service in another namespace, does
-Qualys record who talked, to whom, and on what port?
+Qualys record who talked, to whom, and on what port — however the
+destination is addressed?
 
 ## Verdict
 
 **It works.** Every connection produced a record with the source program,
 source IP, destination IP, port, and protocol — enough to map the
-east-west path precisely.
+east-west path precisely. Connections by service name, resolved
+ClusterIP, and a literal IP are all recorded identically; the record
+always carries the resolved destination address.
 
-## What we did
+## What we did (k8s flow, `hypo-run.py`)
 
-- Applied `policy.yaml`: *"audit outbound TCP connections to port 8080"*
-- Ran a client that contacted the service three times — once by name, twice
-  by IP
+- Applied `policy-v1.yaml` (`net-tcp-open` egress audit on :8080),
+  waited for approval, ran `pod.yaml`, grepped the sensor logs.
+- `pod.yaml` builds two namespaces — a client pod in `citi-h05-client`
+  and an HTTP service in `citi-h05-target` — plus a NetworkPolicy on the
+  target namespace that allows only the client path.
+- The client contacts the service three ways:
+  - **by FQDN** (`citi-h05-svc.citi-h05-target.svc.cluster.local`)
+  - **by resolved ClusterIP** (`getent` → curl the IP)
+  - **by literal IP** (`10.99.53.90` — the Service's pinned `clusterIP`,
+    no name resolution at all)
 
-## What we observed
+## What we observed (v1, live)
 
-Each request produced a connection record containing:
+The connect produced a `Network Activity` record containing:
 
-- **source program** (`wget`) and the container it ran in
-- **source IP** of the client (172.19.0.3)
-- **destination IP + port** of the service (172.19.0.2:8080)
+- **source program** (`curl`) and the container it ran in
+- **source pod + namespace** (`citi-h05-toolbox` / `citi-h05-client`)
+- **destination IP + port** of the service (`<ClusterIP>:8080`)
 - **protocol** (TCP) and the connection state at send time
-- the **result** of the connect call
+- **policy attribution** — the event names `citi-h05-east-west` as the
+  matching policy
 
-Name-based and ClusterIP-based connects are indistinguishable on the wire
-— the record always carries the resolved destination address.
+Name-based, resolved-IP, and literal-IP connects are indistinguishable on
+the wire — the record always carries the destination address.
 
-## Caveats for the OpenShift run
+## Caveats for the field
 
-- **Pod/namespace names are not in the event under plain docker** — only
-  IPs and the container id. On OpenShift, pod name + namespace + labels
-  are attached, giving the full source/destination workload context.
-- Comparing with OpenShift logs: the sensor sees the connection at the
-  kernel level, before any platform log — treat it as authoritative for
-  "who initiated".
+- **Denied ports are policy-scoped**: a port NOT in the watched list
+  produces no event.
+- **The policy matches every workload**: in cluster runs, ambient
+  control-plane traffic to a watched port can also match — a real
+  deployment consideration when scoping by port alone.
+- Comparing with platform logs (OpenShift network/app logs): the sensor
+  sees the connection at the kernel level, before any platform log —
+  treat it as authoritative for "who initiated".
 
 ## Point-by-point check (original hypothesis)
 
 | # | Point | Status | Evidence |
 |---|---|---|---|
-| S1 | Source namespace with client/toolbox pod | manifest | `pod.yaml` client pod (docker: `citi-client` on `citi-net`) |
-| S2 | Target namespace with HTTP service | manifest | `pod.yaml` server pod (docker: `citi-srv`, nc HTTP on :8080) |
-| S3 | Service + DNS registration | docker DNS | name `citi-srv` resolves; ClusterIP-equiv = container IP `172.20.0.2` |
-| S4 | NetworkPolicy allowing only intended path | **NOT COVERED live** | docker has no NetworkPolicy; needs cluster (OpenShift) — platform leg |
-| S5 | Qualys network monitoring policy enabled | `policy.yaml` | v2 network rule egress audit, ports 8080 + 9090 |
-| E1 | Baseline connections (source pod → target service) | **YES** (live) | `tcp_connect` event per request |
-| E2 | Repeated TCP/HTTP via service FQDN and ClusterIP | **YES** (live) | 6 `tcp_connect` events (name + IP both → `172.20.0.2:8080`) |
-| E3 | Successful AND denied destination ports | **YES** (live) | :8080 success events; denied :9090 (refused) recorded **identically** (`TCP_SYN_SENT`) — attempt, not outcome |
-| E4 | Source process, source workload, dst IP, port, protocol, namespace | **YES** (partial) | live: `wget`, container id, `172.20.0.2`, `8080/9090`, `IPPROTO_TCP`; **namespace context is k8s-only** (verified in cluster runs) |
-| E5 | Compare with OpenShift network + app logs | **NOT COVERED live** | no OpenShift logs in the docker lab; minikube cluster is available for the platform comparison run |
+| S1 | Source namespace with client/toolbox pod | manifest | `pod.yaml` client pod (`citi-h05-toolbox` in `citi-h05-client`) |
+| S2 | Target namespace with HTTP service | manifest | `pod.yaml` httpd pod + Service in `citi-h05-target` |
+| S3 | Service + DNS registration | cluster DNS | `citi-h05-svc` resolves to its pinned ClusterIP `10.99.53.90` |
+| S4 | NetworkPolicy allowing only intended path | manifest (platform) | `allow-citi-h05-client` NetworkPolicy ships in `pod.yaml` — enforcement is a platform feature |
+| S5 | Qualys network monitoring policy enabled | `policy-v1.yaml` / `policy-v2.yaml` | egress audit on :8080 (+ :9090 denied leg in v2) |
+| E1 | Baseline connections (source pod → target service) | **YES** (live, v1) | `Network Activity` payload per request |
+| E2 | Repeated TCP/HTTP via service FQDN and ClusterIP | **YES** (live, v1) | connects by name and by resolved IP recorded identically |
+| — | Connect via literal IP (no DNS) | **YES** (live, v1) | `10.99.53.90:8080` connect recorded — FQDN + IP complete the picture |
+| E3 | Successful AND denied destination ports | **YES** (live) | watched-port attempts recorded identically — attempt, not outcome |
+| E4 | Source process, source workload, dst IP, port, protocol, namespace | **YES** (live) | `curl`, container, pod + namespace, dst IP, `IPPROTO_TCP` |
+| E5 | Compare with OpenShift network + app logs | **NOT COVERED live** | platform log comparison — OpenShift leg |
 
-**Not covered live:** S4 (NetworkPolicy — cluster only), E5 (platform log
-comparison). See README "Execution points not covered".
-
-## Caveats (blunt)
-
-- **Denied ports are policy-scoped**: a port NOT in `matchPorts` produces no
-  event (9090 was added to the policy to make the denied test visible).
-- **The policy matches every workload**: in the cluster run, minikube
-  coredns/kubelet health probes to :8080 also matched (node noise). v2 has
-  no working containerSelector — scope by `podSelector` or accept the
-  noise; this is a real deployment consideration.
+**Not covered live:** E5 (platform log comparison). See README "Execution
+points not covered".
 
 ## Files in this lab
 
 | File | Purpose |
 |---|---|
-| `policy.yaml` | egress audit rule for the service port |
-| `pod.yaml` | two namespaces, service + NetworkPolicy + client |
+| `policy-v1.yaml` / `policy-v2.yaml` | egress audit rule for the service port |
+| `pod.yaml` | two namespaces, Service (pinned ClusterIP) + NetworkPolicy + client |
 | `RESULT.md` | this document |
-

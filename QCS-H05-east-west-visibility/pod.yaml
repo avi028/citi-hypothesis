@@ -2,8 +2,9 @@
 # CRS version support: 1.45+ — v1 net-tcp-open covers it
 #
 # Two namespaces: a client/toolbox pod in citi-h05-client, and an HTTP
-# service in citi-h05-target. The client generates requests via both the
-# service FQDN and the ClusterIP. The NetworkPolicy allows only this path.
+# service in citi-h05-target. The client generates requests via the
+# service FQDN, the resolved ClusterIP, and a literal IP (no DNS at all).
+# The NetworkPolicy allows only this path.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -33,6 +34,9 @@ metadata:
   name: citi-h05-svc
   namespace: citi-h05-target
 spec:
+  # pinned so the client can also curl a literal IP with no DNS lookup —
+  # inside the cluster service CIDR (10.96.0.0/12)
+  clusterIP: 10.99.53.90
   selector:
     app: citi-h05-httpd
   ports:
@@ -79,6 +83,8 @@ spec:
       # repeated requests via resolved ClusterIP
       IP=$(getent hosts "$SVC" | awk '{print $1}')
       for i in 1 2 3; do curl -s -o /dev/null "http://$IP:8080" || true; sleep 1; done
+      # literal IP — pinned ClusterIP, no name resolution at all
+      curl -s -o /dev/null "http://10.99.53.90:8080" || true
       sleep 3600
     securityContext:
       allowPrivilegeEscalation: false
