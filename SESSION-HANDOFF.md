@@ -101,7 +101,7 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 
 ## Working through labs — where we are / what's next
 
-- Done + verified live: H07, H08, H09, H10.
+- Done + verified live: H07, H08, H09, H10, H11.
 - **H09 verified (2026-11-06):** PROVEN, 22 events — token opens + both
   API connects recorded ~2s apart after adding `sleep 1/2` between the
   reads/curls (commit `c8747ed`). Its pod.yaml already self-drove; only
@@ -109,7 +109,14 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 - **H10 verified (2026-11-06):** PROVEN, 20 events — 4 API calls
   (2 allowed + 2 denied on :443) each produced a `Network Activity`
   connect ~2s apart after `sleep 2` spacing (commit `bf36884`).
-- **Next: H11+ in sequence** — apply the same checklist: does pod.yaml
-  generate its own activity? is the target defined in-file? are
-  consecutive connects >1s apart? H11 is 1.46+ → needs
-  `--policy-mode v2` and `--enable-process-cred` for cap context.
+- **H11 verified (2026-11-06):** PROVEN, 9 events (v1 file-open on
+  /usr/bin/id). Cluster CRD serves **v1 only** (sensor CRS 1.45.0,
+  chart `~/qcs-sensor` = 1.45.0-0) — v2 policy files can't apply here.
+  **Key finding: base `process_exec` events carry
+  `xattributes.cap`/`process_credentials`/`binary_properties` with NO
+  policy applied** — elevated pod's execs showed CAP_SYS_ADMIN;
+  `cap:{}` = genuinely empty caps (drop ALL), not missing instrumentation.
+  Restricted control pod fails to start (expected negative control).
+- **Next: H12+ in sequence** — same checklist: self-driving workload?
+  target defined? connects >1s apart? v2-only labs (H01,H12,H16,H18,H20
+  legs) can only approximate on this cluster — CRD is v1.

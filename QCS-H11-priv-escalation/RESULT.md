@@ -32,10 +32,31 @@ what actually ran.
 
 ## What we observed
 
+**No policy is needed for the privilege context.** With zero
+RuntimePolicies applied, the base `process_exec` stream already carries
+`xattributes.cap` (permitted + effective), `process_credentials`,
+`binary_properties`, and pod/workload identity. Verified live on the EC2
+cluster (2026-11-06): the elevated pod's `id`/`capsh` execs carried
+
+```text
+"cap":{"permitted":[...,"CAP_SYS_ADMIN",...],
+        "effective":[...,"CAP_SYS_ADMIN",...]}, pod_name":"citi-h11-elevated"
+```
+
+while processes with `drop: ALL` show `"cap":{}` — an elevated exec is
+visibly different from a normal one *in the default event stream itself*.
+The v2 process rule's job is only to flag the execs you care about.
+
 | | Elevated (root + CAP_SYS_ADMIN) | Normal (restricted control) |
 | --- | --- | --- |
-| Capability sets on the exec event contain CAP_SYS_ADMIN | yes | no |
-| Exec of the probe binary flagged | yes | yes (the rule watches the binary, not the privilege) |
+| Capability sets on the exec event contain CAP_SYS_ADMIN | yes | no (empty) |
+| Exec of the probe binary flagged (v2 rule / v1 file-open) | yes | yes (the rule watches the binary, not the privilege) |
+
+v1 run on the EC2 lab (`hypo-run.py --labs 11`, `file-open` on
+`/usr/bin/id`, 2026-11-06): **PROVEN** — 9 events in 111.5s; the probe
+exec + file-open fired for the running pods and the exec stream carried
+the cap context. The restricted control pod failed to start
+(`CreateContainerConfigError`) — the intended negative control.
 
 The exec events carry the container, binary, and command line; pod and
 namespace fields populate under k8s.
