@@ -90,14 +90,19 @@ spec:
       curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $TOKEN" \
         "$API/api/v1/namespaces/citi-h10-src/configmaps" -o /tmp/src.json
+      # space the API calls >1s apart: the v1 net-tcp-open policy
+      # rate-limits to 1 event/sec/pod — back-to-back connects lose events
+      sleep 2
       echo "== allowed: get citi-h10-allowed in citi-h10-src =="
       curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $TOKEN" \
         "$API/api/v1/namespaces/citi-h10-src/configmaps/citi-h10-allowed" -o /tmp/cm.json
+      sleep 2
       echo "== denied: list configmaps in citi-h10-dst =="
       curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $TOKEN" \
         "$API/api/v1/namespaces/citi-h10-dst/configmaps"
+      sleep 2
       echo "== denied: get citi-h10-denied in citi-h10-dst =="
       curl -sS -w "HTTP %{http_code}\n" --cacert "$SADIR/ca.crt" \
         -H "Authorization: Bearer $TOKEN" \
