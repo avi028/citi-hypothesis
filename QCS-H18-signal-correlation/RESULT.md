@@ -28,9 +28,16 @@ build — next release (H06 pattern).
   payload + egress rule on the receiver port
 - Workload (cluster): one container ran shell → created payload + script
   → script read the payload → resolved an internal hostname → connected
-  to the receiver on :8080
+  to the receiver on :8080 (`pod.yaml` now ships the `citi-h18-svc`
+  receiver — previously the upload target didn't resolve and the
+  network leg produced no event)
 
 ## What we observed (correlated chain)
+
+EC2 run (`hypo-run.py --labs 18`, v1 mode, 2026-11-06): **PROVEN** —
+13 matching events in 52.2s covering the payload open, the chain-script
+exec chain, and the egress connect to the receiver.
+
 
 | Leg | Event | Attribution |
 | --- | --- | --- |
