@@ -1,13 +1,47 @@
 # QCS-H08 — Controlled Data Transfer / Exfiltration Simulation
 # CRS version support: 1.45+ — v1 file-open + net-tcp-open cover it
 #
-# Pod carrying a synthetic payload file that reads it and uploads it to the
-# approved internal receiver, then repeats via a script created at runtime.
+# Two namespaces: `citi-h08-recv` runs the approved internal receiver
+# (httpd + service on :8080); `citi-h08` runs a pod carrying a synthetic
+# payload file that reads it and uploads it to the receiver, then repeats
+# via a script created at runtime. The receiver only needs to accept TCP
+# connects — httpd answers PUT with 403/405, which is fine: tcp_connect
+# records the attempt either way.
 # Egress should be restricted to the receiver via OpenShift egress controls.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: citi-h08
+---
+# RECEIVER side — the "approved internal endpoint" the exfil targets.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: citi-h08-recv
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h08-receiver
+  namespace: citi-h08-recv
+  labels:
+    app: citi-h08-receiver
+spec:
+  containers:
+  - name: httpd
+    image: registry.access.redhat.com/ubi9/httpd-24:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: citi-h08-receiver
+  namespace: citi-h08-recv
+spec:
+  selector:
+    app: citi-h08-receiver
+  ports:
+  - port: 8080
+    targetPort: 8080
 ---
 apiVersion: v1
 kind: Pod
