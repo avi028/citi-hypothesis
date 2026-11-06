@@ -23,10 +23,15 @@ event.
 
 ## What we observed
 
-- **A**: 1 policy event for the binary exec + the paired exec event with
-  container id and command line.
-- **B**: **0 policy events** — the package sits in the image but produces
-  no runtime signal.
+- **A** (`citi-h12-used`): the `bash` exec is recorded — `Process-exec`
+  event with binary `/usr/bin/bash`, parent `/usr/bin/sh`, pod and
+  container attribution; the v1 `file-open` policy on the binary fires
+  when it is loaded for execution.
+- **B** (`citi-h12-unused`): **0 events** — same image, package present
+  but never invoked → no runtime signal.
+
+EC2 run (`hypo-run.py --labs 12`, v1 mode, 2026-11-06): **PROVEN** —
+7 matching events in 51.8s, all on the used pod's chain.
 
 The full picture is a join: policy event (which binary matched) + exec
 event (which container) + image-scan result (which CVE — platform).

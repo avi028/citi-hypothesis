@@ -101,7 +101,7 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 
 ## Working through labs — where we are / what's next
 
-- Done + verified live: H07, H08, H09, H10, H11.
+- Done + verified live: H07, H08, H09, H10, H11, H12.
 - **H09 verified (2026-11-06):** PROVEN, 22 events — token opens + both
   API connects recorded ~2s apart after adding `sleep 1/2` between the
   reads/curls (commit `c8747ed`). Its pod.yaml already self-drove; only
