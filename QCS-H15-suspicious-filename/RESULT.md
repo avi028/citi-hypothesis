@@ -35,6 +35,11 @@ parent shell on the event.
 Every event carried the resolved path and container; create/rename/delete
 carry their target in the hook args.
 
+EC2 run (`hypo-run.py --labs 15`, v1 mode, 2026-11-06): **PROVEN** —
+17 matching events in 52.3s. The workload spaces its ops 1s apart so
+the v1 `1s`/pod rate limit records each create/write/rename/open/delete
+(incl. the child-shell re-create) as its own event.
+
 ## Alerting basis — filename vs policy match
 
 Alerting is **policy-match based**: the rule watches the directory +
