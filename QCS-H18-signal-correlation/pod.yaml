@@ -9,6 +9,32 @@ kind: Namespace
 metadata:
   name: citi-h18
 ---
+# Receiver for the upload leg — the chain script wgets this service;
+# tcp_connect records the attempt regardless of HTTP result.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: citi-h18-receiver
+  namespace: citi-h18
+  labels:
+    app: citi-h18-receiver
+spec:
+  containers:
+  - name: httpd
+    image: registry.access.redhat.com/ubi9/httpd-24:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: citi-h18-svc
+  namespace: citi-h18
+spec:
+  selector:
+    app: citi-h18-receiver
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
 apiVersion: v1
 kind: Pod
 metadata:
