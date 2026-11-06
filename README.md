@@ -1,16 +1,12 @@
-<div align="center">
-
 # 🔬 CRS 2.0 — Runtime-Detection Hypothesis Book
 
-### Twenty self-contained labs proving what the Qualys runtime sensor detects on Kubernetes
+**Twenty self-contained labs proving what the Qualys runtime sensor detects on Kubernetes.**
 
 [![Labs](https://img.shields.io/badge/hypothesis%20labs-20-0969DA)](#labs)
 [![Verified](https://img.shields.io/badge/live%20verified-20%2F20%20PROVEN-2DA44E)](#verified-results)
 [![CRS v1](https://img.shields.io/badge/CRS%201.45-v1%20policies-8250DF)](#policy-modes-v1-default-v2-auto)
 [![CRS v2](https://img.shields.io/badge/CRS%201.46%2B-v2%20policies-B54708)](#policy-modes-v1-default-v2-auto)
 [![Backend](https://img.shields.io/badge/backend-Kubernetes%20API-1B7C83)](#running-the-labs)
-
-</div>
 
 ---
 
