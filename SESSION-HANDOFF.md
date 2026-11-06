@@ -101,7 +101,9 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
 
 ## Working through labs — where we are / what's next
 
-- Done + verified live: H07–H19.
+- Done + verified live on the EC2 lab: **H02–H19 — all PROVEN** (v1
+  mode). H01 + H20 are v2-only → "not supported in v1" here (cluster CRD
+  serves qualys.com/v1 only; sensor chart `~/qcs-sensor` = CRS 1.45.0).
 - **H09 verified (2026-11-06):** PROVEN, 22 events — token opens + both
   API connects recorded ~2s apart after adding `sleep 1/2` between the
   reads/curls (commit `c8747ed`). Its pod.yaml already self-drove; only
