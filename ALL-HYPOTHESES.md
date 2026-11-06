@@ -23,9 +23,8 @@ Base version: `release/v1.6-1-q5`.
   fire on container opens only, never host opens of the same path.
 - No v1 base-policy for process-exec, capabilities, memfd, DNS/UDP, or
   mount syscalls — those need v2 process rules or are next-release items.
-- `ebpf-operator tracingpolicy add` cannot ingest v1 YAML directly — the cluster
-  converts it via the v1→v2 webhook; locally, `tools/v1convert` runs the
-  same `controllers.Create*Policy` builders to emit the TracingPolicy.
+- `policy-v1.yaml` is not applied to the sensor directly — the cluster
+  converts it via the v1→v2 webhook into the runtime policy form.
 
 ### v1 live-test results (verified on the running agent)
 

@@ -407,8 +407,8 @@ All twenty labs carry verified `policy-v1.yaml` (legacy v1 schema)
 except H20 (no v1 form — mounted-volume file activity is v2; the mount
 syscall leg is next release); `ALL-HYPOTHESES.md`
 consolidates both policy forms + observed data, plus the three "discuss
-with Qualys" use cases (crypto-mining — mechanism verified in
-`tools/miner-sim.yaml`; package search; unauthorized components).
+with Qualys" use cases (crypto-mining — mechanism verified via a
+miner-simulation workload; package search; unauthorized components).
 
 ## Execution-point coverage
 
