@@ -66,6 +66,10 @@ spec:
       # direct upload
       curl -s --upload-file /tmp/citi-h08-payload.txt "$DEST/upload1" || true
 
+      # space the two legs >1s apart: the v1 net-tcp-open policy rate-limits
+      # to 1 event/sec/pod, so back-to-back connects lose the second event
+      sleep 2
+
       # same transfer performed by a runtime-created script
       cat > /tmp/citi-h08-upload.sh <<EOF
       #!/bin/sh
