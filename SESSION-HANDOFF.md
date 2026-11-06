@@ -85,6 +85,8 @@ sudo kubectl exec -n qualys qualys-runtime-sensor-9zmqn -- sh -c \
   the user reviews events in the Qualys UI. Evidence grep +
   PROVEN/NOT-PROVEN only run with `--debug` (deployed to
   `/tmp/hypo-run.py` on EC2).
+- `--dry-run` now plans all labs without prompting when `--labs` is unset
+  (deployed to `/tmp/hypo-run.py` on EC2).
 
 ## Commits pushed (origin/main, github.com/avi028/citi-hypothesis)
 
