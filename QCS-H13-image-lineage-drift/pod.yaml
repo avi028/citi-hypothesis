@@ -25,6 +25,7 @@ spec:
     - -c
     - |
       mkdir -p /var/qualys-citi/h13
+      sleep 1   # >1s gaps so the 1s/pod file-create rate limit keeps each event
       # image-baked content (part of the image; NOT drift)
       echo "baked-v1" > /var/qualys-citi/h13/baked.txt
       sleep 3600
@@ -50,6 +51,7 @@ spec:
     - -c
     - |
       mkdir -p /var/qualys-citi/h13
+      sleep 1   # >1s gaps so the 1s/pod file-create rate limit keeps each event
       echo "baked-v2" > /var/qualys-citi/h13/baked.txt
       sleep 3600
     securityContext:
