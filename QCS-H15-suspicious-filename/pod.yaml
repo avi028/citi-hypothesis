@@ -25,13 +25,19 @@ spec:
     - |
       mkdir -p /tmp/citi-h15
       cd /tmp/citi-h15
-      echo "page-v1" > Login.jsp
-      echo "class-v1" > Sql.java
-      echo '{"name":"pkg"}' > package.json
+      # >1s gaps between ops: the v1 file policies rate-limit to
+      # 1 event/sec/pod per op type — back-to-back ops lose events
+      echo "page-v1" > Login.jsp;  sleep 1
+      echo "class-v1" > Sql.java;  sleep 1
+      echo '{"name":"pkg"}' > package.json; sleep 1
       echo "page-v2" > Login.jsp              # modify
+      sleep 1
       mv Sql.java SqlOld.java                  # rename
+      sleep 1
       cat package.json                         # read
+      sleep 1
       rm SqlOld.java                           # delete
+      sleep 1
       # re-create through a child process (runtime script)
       sh -c 'echo "page-v3" > /tmp/citi-h15/Login.jsp'
       sleep 3600
