@@ -1459,7 +1459,7 @@ def briefing(lab, ctx):
         log("  workload (pod.yaml): image %s, name %s" % (pod["image"], pod.get("name") or "?"))
         cmd = " ".join(str(c) for c in pod.get("command") or [])
         if cmd:
-            log("    command: %s" % trim_line(cmd))
+            log("    command: %s" % cmd)
     policy = lab["policy"] or {}
     if policy.get("rules"):
         log("  policy rules:")
@@ -1709,7 +1709,7 @@ def apply_pod(lab, ctx, lr):
         log("  container image: %s (name: %s)" % (pod["image"], pod.get("name") or "?"))
     cmd = " ".join(str(c) for c in pod.get("command") or [])
     if cmd:
-        log("  activity: %s" % trim_line(cmd))
+        log("  activity: %s" % cmd)
     else:
         log("  note: no explicit command in pod.yaml - image entrypoint is the activity")
 
@@ -2181,7 +2181,7 @@ def event_matches(line, variants, rule_ids, activity_tokens=None, since=None, _d
 def print_evidence(evidence):
     shown = evidence[: max(1, CFG.max_events)]
     for ev in shown:
-        log("    " + trim_line(ev))
+        log("    " + ev)
     rest = len(evidence) - len(shown)
     if rest > 0:
         log("    ... and %d more" % rest)
@@ -2267,7 +2267,7 @@ def run_enforce_phase(lab, ctx, lr):
     log("what the enforcement pod will do:")
     cmd = " ".join(str(c) for c in ef_pod.get("command") or [])
     if cmd:
-        log("  %s" % trim_line(cmd))
+        log("  %s" % cmd)
     else:
         log("  (image entrypoint - no explicit command)")
     ef_lab = {
