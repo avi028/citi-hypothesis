@@ -1,7 +1,6 @@
 # Qualys Container Runtime Security — CRS Scorecard (per hypothesis)
 
-**For:** the SME presenting Qualys CRS against the customer's runtime
-hypotheses H01–H19. **Basis:** live labs on Kubernetes with the Qualys
+**Basis:** live labs on Kubernetes with the Qualys
 runtime sensor (agent 1.8.0, CRS 1.45, v1 policies unless noted). Each
 "Proof" line is a real sensor event from the lab run, shortened.
 
