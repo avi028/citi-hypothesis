@@ -41,19 +41,22 @@ any host with admin access to the cluster.
 
 ### Run modes
 
+All commands set `PYTHONDONTWRITEBYTECODE=1` so Python doesn't write
+`__pycache__` bytecode files into the lab directory when run as root.
+
 **Dry run — plan only, zero side effects:**
 
 ```bash
-sudo python3 hypo-run.py --dry-run               # preflight + plan for every lab
-sudo python3 hypo-run.py --dry-run --labs 7      # plan just H07
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --dry-run               # preflight + plan for every lab
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --dry-run --labs 7      # plan just H07
 ```
 
 **Normal run (default) — execute the lab, review in the Qualys UI:**
 
 ```bash
-sudo python3 hypo-run.py --labs 2 --yes          # run H02
-sudo python3 hypo-run.py --labs 2-8 --yes        # run H02 through H08
-sudo python3 hypo-run.py --labs all --yes        # every lab supported by the mode
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 2 --yes          # run H02
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 2-8 --yes        # run H02 through H08
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs all --yes        # every lab supported by the mode
 ```
 
 Each lab applies its policy, waits for the approval gate
@@ -65,8 +68,8 @@ print a verdict.
 **Debug run — evidence grep + a verdict per lab:**
 
 ```bash
-sudo python3 hypo-run.py --labs 8 --yes --debug
-sudo python3 hypo-run.py --labs all --yes --debug --log-file run.log
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 8 --yes --debug
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs all --yes --debug --log-file run.log
 ```
 
 `--debug` adds verbose logging plus the evidence stage: it greps the
@@ -86,7 +89,7 @@ summaries** (`FILE`/`EXEC`/`NET`/`POLICY` — event type, status, ns/pod/
 container, file or connection, process, matching policy, hook call)
 extracted from the payload JSON, not the raw dump.
 
-**Interactive:** `sudo python3 hypo-run.py` — pick labs, confirm each.
+**Interactive:** `sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py` — pick labs, confirm each.
 
 ### Policy modes: v1 (default), v2, auto
 
@@ -99,10 +102,10 @@ extracted from the payload JSON, not the raw dump.
 | `auto` | per lab | picks the form by each lab's minimum CRS version |
 
 ```bash
-sudo python3 hypo-run.py --labs 1 --yes                     # H01 -> "not supported in v1"
-sudo python3 hypo-run.py --labs 1 --yes --policy-mode v2    # H01 runs (v2-only lab)
-sudo python3 hypo-run.py --labs all --yes --policy-mode v2  # v2 sweep
-sudo python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 1 --yes                     # H01 -> "not supported in v1"
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 1 --yes --policy-mode v2    # H01 runs (v2-only lab)
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs all --yes --policy-mode v2  # v2 sweep
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs all --yes --policy-mode v2 --setup-sensor
 ```
 
 - A lab whose policy form is missing reports `not supported in v1/v2`

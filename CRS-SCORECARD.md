@@ -470,7 +470,7 @@ sensor profile (platform view of the same cycle).
 ## Suggested live demo (≈10 minutes)
 
 ```bash
-sudo python3 hypo-run.py --labs 2,15,9,16 --yes --debug
+sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 2,15,9,16 --yes --debug
 ```
 H02 drift → kill, H15 suspicious filenames, H09 token theft, H16 audit →
 block. `--debug` prints one-line FILE / EXEC / NET / POLICY summaries and

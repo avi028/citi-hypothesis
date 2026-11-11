@@ -114,7 +114,7 @@ process rule.
 | `pod-enforce.yaml` | Enforcement-phase workload (exec + write attempts into the blocked dir) |
 | `RESULT.md` | This document |
 
-Two-phase flow: `sudo python3 hypo-run.py --labs 2 --yes` runs audit →
+Two-phase flow: `sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py --labs 2 --yes` runs audit →
 enforcement automatically (v1 default; `--policy-mode v2` for v2).
 
 EC2 verification (`hypo-run.py --labs 2`, v1 mode, 2026-11-06): **PROVEN** — 16 matching events.

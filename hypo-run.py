@@ -5,7 +5,7 @@ hypo-run — run citi-hypothesis labs end-to-end on a live Qualys ebpf-agent hos
 
 USAGE
 -----
-    sudo python3 hypo-run.py [options]
+    sudo PYTHONDONTWRITEBYTECODE=1 python3 hypo-run.py [options]
     python3 hypo-run.py --dry-run
     python3 hypo-run.py --labs 1,3-5,7          # non-interactive selection
 
