@@ -127,7 +127,7 @@ from collections import OrderedDict
 from datetime import datetime
 from types import SimpleNamespace
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 # --------------------------------------------------------------------------
 # constants / defaults
@@ -2178,10 +2178,144 @@ def event_matches(line, variants, rule_ids, activity_tokens=None, since=None, _d
     return False, None, None
 
 
-def print_evidence(evidence):
+def _jget(obj, *keys):
+    """Safe nested get: _jget(d, 'a', 'b') -> d['a']['b'] or None; int
+    keys index into lists."""
+    cur = obj
+    for k in keys:
+        if isinstance(cur, dict):
+            cur = cur.get(k)
+        elif isinstance(cur, list) and isinstance(k, int) and 0 <= k < len(cur):
+            cur = cur[k]
+        else:
+            return None
+    return cur
+
+
+def _first(obj, *paths):
+    """First non-empty value among the given nested key paths."""
+    for path in paths:
+        v = _jget(obj, *path)
+        if v not in (None, ""):
+            return v
+    return None
+
+
+CMD_WIDTH = 120
+
+
+def _one_line(s, width=CMD_WIDTH):
+    """Collapse whitespace/newlines and truncate to `width` chars."""
+    if s is None:
+        return "?"
+    s = re.sub(r"\s+", " ", str(s)).strip()
+    if len(s) > width:
+        return s[:width] + "..."
+    return s or "?"
+
+
+_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)")
+_PAYLOAD_MARKERS = [
+    ("File event payload", "FILE"),
+    ("Process-exec event payload", "EXEC"),
+    ("Network Activity payload", "NET"),
+]
+
+
+def _summarize_policy_line(s):
+    """Condense operator lifecycle lines: keep the policy name + action
+    (and hook call when the embedded TracingPolicy carries one) instead of
+    the full YAML dump."""
+    m = re.search(r'msg="Adding policy %s:\\n%s"\s+([\w.-]+)="', s)
+    if m:
+        name = m.group(1)
+        am = re.search(r"action:\s*(\w+)", s)
+        cm = re.search(r"call:\s*(\w+)", s)
+        return "POLICY %s: action=%s hook=%s" % (
+            name, am.group(1) if am else "?", cm.group(1) if cm else "?")
+    m = re.search(r'msg="Successfully added policy %s"\s+(?:!BADKEY=)?([\w.-]+)', s)
+    if m:
+        return "POLICY %s: added" % m.group(1)
+    return None
+
+
+def _summarize_payload(kind, j, ts, policy_hint):
+    """One-line summary of a Qualys OCSF (or tetragon-format) payload."""
+    ns = _first(j, ("resource", "kubernetes.namespace", "name"))
+    pod = _first(j, ("actor", "process", "xattributes", "pod_name"),
+                 ("process", "xattributes", "pod_name"),
+                 ("resource", "kubernetes.pod.name", "name"))
+    ctr = _first(j, ("actor", "process", "container", "name"),
+                 ("process", "container", "name"))
+    pol = _first(j, ("authorizations", 0, "policy", "name")) or policy_hint or "?"
+    hook = _first(j, ("function_name",)) or "?"
+    status = _first(j, ("status",)) or "?"
+    head = ts + " " if ts else ""
+    if kind == "FILE":
+        action = _first(j, ("activity_name",)) or "?"
+        path = _first(j, ("file", "path"), ("file_result", "path"))
+        actor = _first(j, ("actor", "process", "name"))
+        return "%sFILE %s status=%s ns=%s pod=%s ctr=%s file=%s actor=%s policy=%s hook=%s" % (
+            head, action, status, ns or "?", pod or "?", ctr or "?", path or "?",
+            _one_line(actor), pol, hook)
+    if kind == "EXEC":
+        binary = _first(j, ("process", "file", "path"), ("process", "name"))
+        pid = _first(j, ("process", "pid"))
+        cmd = _first(j, ("process", "cmd_line"))
+        return "%sEXEC %s pid=%s ns=%s pod=%s ctr=%s cmd=%s status=%s policy=%s hook=%s" % (
+            head, binary or "?", pid if pid is not None else "?", ns or "?", pod or "?",
+            ctr or "?", _one_line(cmd), status, pol, hook)
+    if kind == "NET":
+        proto = _first(j, ("connection_info", "protocol_name"))
+        src = _first(j, ("src_endpoint", "ip"))
+        sport = _first(j, ("src_endpoint", "port"))
+        dst = _first(j, ("dst_endpoint", "ip"))
+        dport = _first(j, ("dst_endpoint", "port"))
+        proc = _first(j, ("actor", "process", "name"))
+        args = _first(j, ("actor", "process", "cmd_line"))
+        src_s = (src or "?") + (":%s" % sport if sport is not None else "")
+        dst_s = (dst or "?") + (":%s" % dport if dport is not None else "")
+        return "%sNET %s %s -> %s proc=%s args=%s ns=%s pod=%s ctr=%s status=%s policy=%s hook=%s" % (
+            head, proto or "?", src_s, dst_s, _one_line(proc), _one_line(args),
+            ns or "?", pod or "?", ctr or "?", status, pol, hook)
+    return None
+
+
+def summarize_evidence_line(line, policy_hint=None):
+    """Condense one evidence line into a single readable summary.
+
+    Qualys payloads (File/Process-exec/Network Activity) and operator
+    policy lines are summarized; anything else (activity tokens,
+    process-tree lines, malformed payloads) is returned unchanged."""
+    s = line.strip()
+    ts = ""
+    mts = _TS_RE.match(s)
+    if mts:
+        ts = mts.group(1)
+        s = s[mts.end():].lstrip(" \t")
+    pol_line = _summarize_policy_line(s)
+    if pol_line:
+        return pol_line
+    kind = None
+    for marker, k in _PAYLOAD_MARKERS:
+        idx = s.find(marker)
+        if idx != -1:
+            kind = k
+            s = s[idx + len(marker):].lstrip(" \t:-")
+            break
+    if kind is None:
+        return line
+    try:
+        j = json.loads(s)
+    except (ValueError, TypeError):
+        return line
+    return _summarize_payload(kind, j, ts, policy_hint) or line
+
+
+def print_evidence(evidence, policy_hint=None):
     shown = evidence[: max(1, CFG.max_events)]
     for ev in shown:
-        log("    " + ev)
+        log("    " + summarize_evidence_line(ev, policy_hint=policy_hint))
     rest = len(evidence) - len(shown)
     if rest > 0:
         log("    ... and %d more" % rest)
@@ -2297,7 +2431,7 @@ def run_enforce_phase(lab, ctx, lr):
     if evidence:
         log("  enforcement evidence: %d matching event(s) (policy-name/rule-id: %d, activity/process_exec: %d)"
             % (len(evidence), ev_counts.get("policy", 0), ev_counts.get("activity", 0)))
-        print_evidence(evidence)
+        print_evidence(evidence, policy_hint=ef_pol.get("name") or (lab["name"] + "-enforce"))
         joined = " ".join(evidence[:50]).lower()
         if ("sigkill" in joined) or ("kill" in joined and "137" in joined) or ("status.*failure" in joined):
             lr.state["enforcement_observed"] = True
@@ -2360,7 +2494,7 @@ def run_lab(lab, idx, ctx):
             lr.verdict = "PROVEN"
             log("  evidence: %d matching event(s) (policy-name/rule-id: %d, activity/process_exec: %d)"
                 % (len(evidence), ev_counts.get("policy", 0), ev_counts.get("activity", 0)))
-            print_evidence(evidence)
+            print_evidence(evidence, policy_hint=(lab["policy"] or {}).get("name") or lab["name"])
             joined = " ".join(evidence[:50]).lower()
             if ("sigkill" in joined) or ("kill" in joined and "137" in joined) or ("status.*failure" in joined):
                 lr.state["enforcement_observed"] = True

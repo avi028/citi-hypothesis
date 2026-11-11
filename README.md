@@ -81,7 +81,10 @@ rather than a UI review.
 lines the evidence grep counts on are emitted at DEBUG. Before running,
 the script samples the sensor log and aborts (`sensor-debug-off`, exit 1)
 if no DEBUG records are present, instead of silently reporting false
-NOT-PROVEN verdicts.
+NOT-PROVEN verdicts. Evidence lines are printed as **concise per-event
+summaries** (`FILE`/`EXEC`/`NET`/`POLICY` — event type, status, ns/pod/
+container, file or connection, process, matching policy, hook call)
+extracted from the payload JSON, not the raw dump.
 
 **Interactive:** `sudo python3 hypo-run.py` — pick labs, confirm each.
 

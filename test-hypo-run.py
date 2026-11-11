@@ -278,5 +278,91 @@ check("zero --labs -> exit 2", c == 2)
 c, out = rc(["--dry-run", "--labs-dir", tempfile.mkdtemp(prefix="hypo-empty-")])
 check("empty labs dir -> exit 1", c == 1, out[-200:])
 
+# ---- evidence summarization ------------------------------------------------
+
+def summ_line(payload, hint=None, marker="File event payload", sep="- "):
+    return m.summarize_evidence_line(
+        "2026-11-10T20:43:16.108Z\tDEBUG\t1.8.0-0\t%s %s%s" % (marker, sep, payload),
+        policy_hint=hint)
+
+FILE_PAYLOAD = json.dumps({
+    "activity_name": "Create", "status": "Success",
+    "file": {"path": "/tmp/citi-h02/drift.sh"},
+    "actor": {"process": {"name": "/usr/bin/sh",
+                          "xattributes": {"pod_name": "citi-h02-drift"},
+                          "container": {"name": "drifter"}}},
+    "resource": {"kubernetes.namespace": {"name": "citi-h02"},
+                 "kubernetes.pod.name": {"name": "citi-h02-drift"}},
+    "authorizations": [{"policy": {"name": "citi-h02-drift-create"}}]})
+fs = summ_line(FILE_PAYLOAD)
+check("file summary: FILE Create", "FILE Create" in fs, fs)
+check("file summary: path", "/tmp/citi-h02/drift.sh" in fs, fs)
+check("file summary: policy from authorizations", "policy=citi-h02-drift-create" in fs, fs)
+check("file summary: status", "status=Success" in fs, fs)
+check("file summary: pod+ns", "pod=citi-h02-drift" in fs and "ns=citi-h02" in fs, fs)
+check("file summary: hook placeholder", "hook=?" in fs, fs)
+
+# policy-less file event -> policy stamped from the lab context
+fs2 = summ_line(FILE_PAYLOAD.replace('"authorizations":[{"policy":{"name":"citi-h02-drift-create"}}]', ''),
+                hint="citi-h02-drift-create")
+check("file summary: policy from hint", "policy=citi-h02-drift-create" in fs2, fs2)
+
+PROC_PAYLOAD = json.dumps({
+    "process": {"name": "chmod", "file": {"path": "/usr/bin/chmod"}, "pid": 4131919,
+                "cmd_line": "--coreutils-prog-shebang=chmod /usr/bin/chmod 755 /tmp/citi-h02/drift.sh",
+                "xattributes": {"pod_name": "citi-h02-drift"},
+                "container": {"name": "drifter"}},
+    "resource": {"kubernetes.namespace": {"name": "citi-h02"},
+                 "kubernetes.pod.name": {"name": "citi-h02-drift"}}})
+ps = summ_line(PROC_PAYLOAD, hint="citi-h02-drift-create", marker="Process-exec event payload")
+check("exec summary: binary", "EXEC /usr/bin/chmod" in ps, ps)
+check("exec summary: pid", "pid=4131919" in ps, ps)
+check("exec summary: policy hint", "policy=citi-h02-drift-create" in ps, ps)
+check("exec summary: cmd collapsed", "cmd=--coreutils-prog-shebang=chmod" in ps, ps)
+
+LONG_CMD = json.dumps({"process": {"file": {"path": "/usr/bin/sh"},
+                                   "cmd_line": "x" * 300,
+                                   "xattributes": {"pod_name": "p"}}})
+lcs = summ_line(LONG_CMD, hint="p1", marker="Process-exec event payload")
+check("exec summary: cmd truncated at 120", "cmd=" + "x" * 120 + "..." in lcs, lcs)
+
+NET_PAYLOAD = json.dumps({
+    "connection_info": {"protocol_name": "TCP"},
+    "src_endpoint": {"ip": "192.168.231.68"},
+    "dst_endpoint": {"ip": "10.96.0.1", "port": 443},
+    "status": "Success",
+    "actor": {"process": {"name": "/usr/bin/curl",
+                          "cmd_line": "-sk https://kubernetes.default.svc:443/",
+                          "xattributes": {"pod_name": "citi-h04-fileless"},
+                          "container": {"name": "workload"}}},
+    "resource": {"kubernetes.namespace": {"name": "citi-h04"},
+                 "kubernetes.pod.name": {"name": "citi-h04-fileless"}}})
+ns_ = summ_line(NET_PAYLOAD, hint="citi-h04-egress-audit", marker="Network Activity payload", sep=": ")
+check("net summary: NET TCP", "NET TCP" in ns_, ns_)
+check("net summary: dst ip:port", "10.96.0.1:443" in ns_, ns_)
+check("net summary: src ip", "192.168.231.68" in ns_, ns_)
+check("net summary: proc", "/usr/bin/curl" in ns_, ns_)
+check("net summary: status", "status=Success" in ns_, ns_)
+check("net summary: policy hint", "policy=citi-h04-egress-audit" in ns_, ns_)
+
+POLICY_ADD = ('level=info msg="Adding policy %s:\\n%s" citi-h02-drift-create='
+              '"apiVersion: cilium.io/v1alpha1\\nkind: TracingPolicy\\n'
+              'matchActions:\\n- action: Post\\n  call: security_inode_create\\n"')
+pas = m.summarize_evidence_line(POLICY_ADD)
+check("policy line: name", "citi-h02-drift-create" in pas, pas)
+check("policy line: action", "action=Post" in pas, pas)
+check("policy line: hook", "security_inode_create" in pas, pas)
+
+POLICY_OK = 'level=info msg="Successfully added policy %s" !BADKEY=citi-h02-drift-create'
+pks = m.summarize_evidence_line(POLICY_OK)
+check("policy line: added", "POLICY citi-h02-drift-create: added" in pks, pks)
+
+check("non-JSON line kept as-is",
+      m.summarize_evidence_line("New process added to tree: /tmp/x.sh (parent: 1)")
+      == "New process added to tree: /tmp/x.sh (parent: 1)")
+check("activity token kept as-is",
+      m.summarize_evidence_line("/tmp/citi-h02-block/drift.sh")
+      == "/tmp/citi-h02-block/drift.sh")
+
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
