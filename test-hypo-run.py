@@ -303,9 +303,18 @@ check("file summary: pod+ns", "pod=citi-h02-drift" in fs and "ns=citi-h02" in fs
 check("file summary: hook placeholder", "hook=?" in fs, fs)
 
 # policy-less file event -> policy stamped from the lab context
-fs2 = summ_line(FILE_PAYLOAD.replace('"authorizations":[{"policy":{"name":"citi-h02-drift-create"}}]', ''),
-                hint="citi-h02-drift-create")
-check("file summary: policy from hint", "policy=citi-h02-drift-create" in fs2, fs2)
+# real Qualys shape: authorizations nests under actor
+_real = json.loads(FILE_PAYLOAD)
+_real["actor"]["authorizations"] = _real.pop("authorizations")
+fsr = summ_line(json.dumps(_real), hint="lab-hint")
+check("file summary: actor.authorizations is a real hit", "policy=citi-h02-drift-create" in fsr
+      and "policy~=" not in fsr, fsr)
+
+_no_auth = json.loads(FILE_PAYLOAD)
+del _no_auth["authorizations"]
+fs2 = summ_line(json.dumps(_no_auth), hint="citi-h02-drift-create")
+check("file summary: policy from hint marked ~=", "policy~=citi-h02-drift-create" in fs2, fs2)
+check("file summary: authorizations policy marked =", "policy~=" not in fs, fs)
 
 PROC_PAYLOAD = json.dumps({
     "process": {"name": "chmod", "file": {"path": "/usr/bin/chmod"}, "pid": 4131919,
@@ -317,7 +326,7 @@ PROC_PAYLOAD = json.dumps({
 ps = summ_line(PROC_PAYLOAD, hint="citi-h02-drift-create", marker="Process-exec event payload")
 check("exec summary: binary", "EXEC /usr/bin/chmod" in ps, ps)
 check("exec summary: pid", "pid=4131919" in ps, ps)
-check("exec summary: policy hint", "policy=citi-h02-drift-create" in ps, ps)
+check("exec summary: policy hint", "policy~=citi-h02-drift-create" in ps, ps)
 check("exec summary: cmd collapsed", "cmd=--coreutils-prog-shebang=chmod" in ps, ps)
 
 LONG_CMD = json.dumps({"process": {"file": {"path": "/usr/bin/sh"},
@@ -343,7 +352,7 @@ check("net summary: dst ip:port", "10.96.0.1:443" in ns_, ns_)
 check("net summary: src ip", "192.168.231.68" in ns_, ns_)
 check("net summary: proc", "/usr/bin/curl" in ns_, ns_)
 check("net summary: status", "status=Success" in ns_, ns_)
-check("net summary: policy hint", "policy=citi-h04-egress-audit" in ns_, ns_)
+check("net summary: policy hint", "policy~=citi-h04-egress-audit" in ns_, ns_)
 
 POLICY_ADD = ('level=info msg="Adding policy %s:\\n%s" citi-h02-drift-create='
               '"apiVersion: cilium.io/v1alpha1\\nkind: TracingPolicy\\n'
@@ -356,6 +365,25 @@ check("policy line: hook", "security_inode_create" in pas, pas)
 POLICY_OK = 'level=info msg="Successfully added policy %s" !BADKEY=citi-h02-drift-create'
 pks = m.summarize_evidence_line(POLICY_OK)
 check("policy line: added", "POLICY citi-h02-drift-create: added" in pks, pks)
+
+POLICY_MULTI = ('level=info msg="Adding policy %s:\\n%s" citi-h02-drift-write='
+                '"spec:\\n  kprobes:\\n  - call: vfs_write\\n    - action: Post\\n'
+                '  - call: vfs_writev\\n    - action: Post\\n  - call: do_splice_direct\\n"')
+pms = m.summarize_evidence_line(POLICY_MULTI)
+check("policy line: all distinct hooks", "hook=vfs_write,vfs_writev,do_splice_direct" in pms, pms)
+check("policy line: actions deduped", "action=Post " in pms, pms)
+
+pts = m.summarize_evidence_line("2026-11-10T20:43:16.108Z " + POLICY_OK)
+check("policy line: timestamp kept", pts.startswith("2026-11-10T20:43:16.108Z POLICY"), pts)
+
+EMPTY = summ_line("{}")
+check("empty payload: no crash, all ?", EMPTY.startswith("2026-11-10T20:43:16.108Z FILE ?")
+      and "ns=? pod=? ctr=? file=?" in EMPTY and "policy=?" in EMPTY, EMPTY)
+check("non-string status rendered ?", "status=?" in summ_line(json.dumps({"status": {}})))
+
+check("color: FILE tag colorized", "\x1b[35mFILE\x1b[0m" in m._colorize("    2026-11-10T20:43:16.108Z FILE Create"))
+check("color: POLICY tag colorized", "\x1b[33mPOLICY\x1b[0m" in m._colorize("    POLICY x: added"))
+check("color: tag word inside text untouched", "\x1b" not in m._colorize("file=/tmp/NETWORK.txt"))
 
 check("non-JSON line kept as-is",
       m.summarize_evidence_line("New process added to tree: /tmp/x.sh (parent: 1)")

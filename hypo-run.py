@@ -223,9 +223,14 @@ _TOKEN_COLOR = {
     "SKIPPED": "33",
     "ABORTED": "31",
     "FINISHED": "32",
+    "FILE": "35",     # magenta — evidence summary tags
+    "EXEC": "34",     # blue
+    "NET": "36",      # cyan
+    "POLICY": "33",   # yellow
 }
 _COLOR_RE = re.compile(
-    r"(\[WARN\]|\[INFO\]|\[FAIL\]|NOT-PROVEN|PROVEN|SKIPPED|ABORTED|FINISHED)")
+    r"(\[WARN\]|\[INFO\]|\[FAIL\]|NOT-PROVEN|PROVEN|SKIPPED|ABORTED|FINISHED"
+    r"|(?<=\s)(?:FILE|EXEC|NET|POLICY)(?= ))")
 _PHASE_RE = re.compile(r"^== .* ==$")
 
 
@@ -2222,20 +2227,29 @@ _PAYLOAD_MARKERS = [
 ]
 
 
-def _summarize_policy_line(s):
-    """Condense operator lifecycle lines: keep the policy name + action
-    (and hook call when the embedded TracingPolicy carries one) instead of
-    the full YAML dump."""
+def _distinct(values):
+    """Unique values in first-seen order, joined with ',' (or '?')."""
+    out = []
+    for v in values:
+        if v not in out:
+            out.append(v)
+    return ",".join(out) or "?"
+
+
+def _summarize_policy_line(s, ts=""):
+    """Condense operator lifecycle lines: keep the policy name + every
+    distinct action and hook call in the embedded TracingPolicy (a policy
+    can carry several kprobes) instead of the full YAML dump."""
+    head = ts + " " if ts else ""
     m = re.search(r'msg="Adding policy %s:\\n%s"\s+([\w.-]+)="', s)
     if m:
-        name = m.group(1)
-        am = re.search(r"action:\s*(\w+)", s)
-        cm = re.search(r"call:\s*(\w+)", s)
-        return "POLICY %s: action=%s hook=%s" % (
-            name, am.group(1) if am else "?", cm.group(1) if cm else "?")
+        return "%sPOLICY %s: action=%s hook=%s" % (
+            head, m.group(1),
+            _distinct(re.findall(r"\baction:\s*(\w+)", s)),
+            _distinct(re.findall(r"\bcall:\s*(\w+)", s)))
     m = re.search(r'msg="Successfully added policy %s"\s+(?:!BADKEY=)?([\w.-]+)', s)
     if m:
-        return "POLICY %s: added" % m.group(1)
+        return "%sPOLICY %s: added" % (head, m.group(1))
     return None
 
 
@@ -2247,22 +2261,35 @@ def _summarize_payload(kind, j, ts, policy_hint):
                  ("resource", "kubernetes.pod.name", "name"))
     ctr = _first(j, ("actor", "process", "container", "name"),
                  ("process", "container", "name"))
-    pol = _first(j, ("authorizations", 0, "policy", "name")) or policy_hint or "?"
+    # policy= : named by the payload itself (authorizations) — a real
+    # policy hit. policy~= : stamped from the lab context because the
+    # payload names no policy (e.g. a v1 activity-token match), so the
+    # reader can tell attribution apart from an actual detection.
+    named = _first(j, ("actor", "authorizations", 0, "policy", "name"),
+                   ("authorizations", 0, "policy", "name"))
+    if named:
+        pol = "policy=%s" % named
+    elif policy_hint:
+        pol = "policy~=%s" % policy_hint
+    else:
+        pol = "policy=?"
     hook = _first(j, ("function_name",)) or "?"
     status = _first(j, ("status",)) or "?"
+    if not isinstance(status, str):
+        status = "?"
     head = ts + " " if ts else ""
     if kind == "FILE":
         action = _first(j, ("activity_name",)) or "?"
         path = _first(j, ("file", "path"), ("file_result", "path"))
         actor = _first(j, ("actor", "process", "name"))
-        return "%sFILE %s status=%s ns=%s pod=%s ctr=%s file=%s actor=%s policy=%s hook=%s" % (
+        return "%sFILE %s status=%s ns=%s pod=%s ctr=%s file=%s actor=%s %s hook=%s" % (
             head, action, status, ns or "?", pod or "?", ctr or "?", path or "?",
             _one_line(actor), pol, hook)
     if kind == "EXEC":
         binary = _first(j, ("process", "file", "path"), ("process", "name"))
         pid = _first(j, ("process", "pid"))
         cmd = _first(j, ("process", "cmd_line"))
-        return "%sEXEC %s pid=%s ns=%s pod=%s ctr=%s cmd=%s status=%s policy=%s hook=%s" % (
+        return "%sEXEC %s pid=%s ns=%s pod=%s ctr=%s cmd=%s status=%s %s hook=%s" % (
             head, binary or "?", pid if pid is not None else "?", ns or "?", pod or "?",
             ctr or "?", _one_line(cmd), status, pol, hook)
     if kind == "NET":
@@ -2275,7 +2302,7 @@ def _summarize_payload(kind, j, ts, policy_hint):
         args = _first(j, ("actor", "process", "cmd_line"))
         src_s = (src or "?") + (":%s" % sport if sport is not None else "")
         dst_s = (dst or "?") + (":%s" % dport if dport is not None else "")
-        return "%sNET %s %s -> %s proc=%s args=%s ns=%s pod=%s ctr=%s status=%s policy=%s hook=%s" % (
+        return "%sNET %s %s -> %s proc=%s args=%s ns=%s pod=%s ctr=%s status=%s %s hook=%s" % (
             head, proto or "?", src_s, dst_s, _one_line(proc), _one_line(args),
             ns or "?", pod or "?", ctr or "?", status, pol, hook)
     return None
@@ -2293,7 +2320,7 @@ def summarize_evidence_line(line, policy_hint=None):
     if mts:
         ts = mts.group(1)
         s = s[mts.end():].lstrip(" \t")
-    pol_line = _summarize_policy_line(s)
+    pol_line = _summarize_policy_line(s, ts)
     if pol_line:
         return pol_line
     kind = None
